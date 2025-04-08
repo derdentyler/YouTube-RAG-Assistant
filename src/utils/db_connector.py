@@ -10,19 +10,10 @@ from src.utils.logger_loader import LoggerLoader
 load_dotenv()
 logger = LoggerLoader.get_logger()
 
-# Конфигурация БД из переменных окружения
-# USER = os.getenv("USER", "postgres.gbvlgijpwfdufxdpsmli")
-# PASSWORD = os.getenv("SUPABASE_KEY", "your_db_password")
-# HOST = os.getenv("HOST", "aws-0-eu-central-1.pooler.supabase.com")
-# PORT = os.getenv("PORT", "5432")
-# DBNAME = os.getenv("DBNAME", "postgres")
-
-
-
-USER = os.getenv("USER")  # Если USER нет в .env, используем "default_user"
+USER = os.getenv("USER")
 PASSWORD = os.getenv("SUPABASE_KEY")
 HOST = os.getenv("HOST")
-PORT = int(os.getenv("PORT"))  # Если PORT нет в .env, используем 5432
+PORT = int(os.getenv("PORT"))
 DBNAME = os.getenv("DBNAME")
 
 
