@@ -1,0 +1,19 @@
+language: "ru"
+
+models:
+  ru:
+    backend: "llama.cpp"
+    model_path: "./models/saiga_llama3_8b-q4_k_m.gguf"
+    n_ctx: 8192
+  en:
+    backend: "transformers"
+    model_name: "mistralai/Mistral-7B-Instruct-v0.1"
+
+embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+
+retriever:
+  top_k: 5
+  similarity_metric: "cosine"
+
+# Длительность одного блока субтитров в секундах (используется для объединения коротких фраз)
+subtitle_block_duration: 60

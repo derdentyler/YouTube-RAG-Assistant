@@ -1,0 +1,10 @@
+Based on the context below, answer the question. Use only the information provided in the context.
+Do not make up or infer anything that is not explicitly stated. If the context does not contain the answer, state that the information is insufficient.
+Your answer should be brief, precise, and to the point. Avoid repetition and unnecessary explanations.
+
+Context:
+{context}
+
+Question: {query}
+
+Answer:
