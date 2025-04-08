@@ -115,3 +115,7 @@ In the future, I plan to add the following features:
 - **Unit Tests**: To improve code quality and ensure stability with automated testing.
 - **Ranking Techniques in RAG**: To classify prompts by their usefulness using additional ranking methods.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
+
+## Contact
+
+For any questions or suggestions, feel free to reach out: 📧 alexander.polybinsky@gmail.com
