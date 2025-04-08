@@ -16,13 +16,6 @@ HOST = os.getenv("HOST")
 PORT = int(os.getenv("PORT"))
 DBNAME = os.getenv("DBNAME")
 
-
-print(f"USER: {USER}")
-print(f"HOST: {HOST}")
-print(f"PORT: {PORT}")
-print(f"DBNAME: {DBNAME}")
-
-
 class DBConnector:
     def __init__(self) -> None:
         self._pool: Optional[SimpleConnectionPool] = None
