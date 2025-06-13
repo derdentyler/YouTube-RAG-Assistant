@@ -73,6 +73,14 @@ The API supports Swagger UI for testing all available endpoints. To access Swagg
 http://localhost:8000/docs
 ```
 
+### Unit tests
+
+To use unit tests:
+
+```bash
+poetry run pytest
+```
+
 ## Technologies
 
 - **FastAPI** - for creating the API
@@ -111,7 +119,8 @@ This project is licensed under the MIT License.
 
 In the future, I plan to add the following features:
 
+- **CI/CD**: To improve code quality and ensure stability with CI/CD.
+- **Ranking module**: To classify prompts by their usefulness using additional ranking methods.
 - **Docker**: To containerize the project for easier deployment and scaling.
-- **Unit Tests**: To improve code quality and ensure stability with automated testing.
-- **Ranking Techniques in RAG**: To classify prompts by their usefulness using additional ranking methods.
+- **Refactoring**: Add type annotations. Add Config pydantic-class.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
