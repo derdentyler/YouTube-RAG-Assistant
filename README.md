@@ -124,3 +124,7 @@ In the future, I plan to add the following features:
 - **Docker**: To containerize the project for easier deployment and scaling.
 - **Refactoring**: Add type annotations. Add Config pydantic-class.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
+
+## Contact
+
+For any questions or suggestions, feel free to reach out: 📧 alexander.polybinsky@gmail.com
