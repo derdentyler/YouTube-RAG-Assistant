@@ -1,0 +1,23 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-rag-api:latest
+    container_name: video-rag-api
+    restart: always
+
+    # Подхватываем все настройки и секреты из .env (в том числе SUPABASE_URL и SUPABASE_KEY)
+    env_file:
+      - .env
+
+    # Монтируем большую модель и конфиг вне образа
+    volumes:
+      - ./src:/app/src
+      - ./models:/app/models
+      - ./config:/app/config
+      - ./downloads/subtitles:/app/downloads/subtitles
+
+    # Пробрасываем порт приложения из APP_PORT
+    ports:
+      - "${APP_PORT}:${APP_PORT}"
