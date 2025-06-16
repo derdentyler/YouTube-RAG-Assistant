@@ -15,7 +15,7 @@ dependencies = [
     "requests (>=2.32.3,<3.0.0)",
     "youtube-transcript-api (>=1.0.1,<2.0.0)",
     "supabase (>=2.14.0,<3.0.0)",
-    "psycopg2 (>=2.9.10,<3.0.0)",
+    "psycopg2-binary (>=2.9.10,<3.0.0)",
     "sentence-transformers (>=4.0.1,<5.0.0)",
     "llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.2.90/llama_cpp_python-0.2.90-cp312-cp312-win_amd64.whl",
     "fastapi (>=0.115.12,<0.116.0)",

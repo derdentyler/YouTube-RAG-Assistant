@@ -5,6 +5,11 @@ from src.answer_generator.rag_model import RAGModel
 from src.utils.logger_loader import LoggerLoader
 from src.utils.db_connector import DBConnector
 import uvicorn
+from dotenv import load_dotenv
+import os
+
+# Переменные .env
+load_dotenv()
 
 # Логгер
 logger = LoggerLoader.get_logger()
@@ -55,5 +60,6 @@ def shutdown_event() -> None:
 
 # ----- Запуск сервера -----
 if __name__ == "__main__":
-    logger.info("Запуск сервера на http://127.0.0.1:8000")
-    uvicorn.run("src.api.main:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.getenv("APP_PORT", 8000))
+    logger.info(f"Запуск сервера на http://127.0.0.1:{port}")
+    uvicorn.run("src.api.main:app", host="127.0.0.1", port=port, reload=True)

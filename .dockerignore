@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+venv/
+.git/
+/logs
+/models
+.idea
+/downloads
+/notebooks
