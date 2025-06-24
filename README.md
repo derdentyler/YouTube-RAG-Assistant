@@ -81,6 +81,37 @@ To use unit tests:
 poetry run pytest
 ```
 
+## Docker Setup and Usage
+
+We provide a Dockerized version of the API for easy local development and production deployment.
+
+### Building the Docker Image
+
+```bash
+# Build the Docker image (tagged as video-rag-api:latest)
+docker compose build
+```
+
+### Running in Development Mode
+Code changes in ./src will be detected automatically by Uvicorn’s --reload, no need to rebuild
+```bash
+# Start containers, mount local code for live reload (Uvicorn --reload)
+docker compose up
+```
+### Running with Rebuild
+Whenever you update dependencies in pyproject.toml or modify the Dockerfile:
+```bash
+# Rebuild the image and start fresh containers
+docker compose up --build -d
+```
+
+### Stopping and Cleaning Up
+This stops and removes all containers and networks, but preserves volumes (e.g. downloaded subtitles or models)
+```bash
+docker compose down
+```
+
+
 ## Technologies
 
 - **FastAPI** - for creating the API
@@ -121,7 +152,6 @@ In the future, I plan to add the following features:
 
 - **CI/CD**: To improve code quality and ensure stability with CI/CD.
 - **Ranking module**: To classify prompts by their usefulness using additional ranking methods.
-- **Docker**: To containerize the project for easier deployment and scaling.
 - **Refactoring**: Add type annotations. Add Config pydantic-class.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
 
