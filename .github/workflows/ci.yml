@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    # Подставляем точно такие же имена переменных, как в вашем .env
+    env:
+      PYTHONPATH:      ${{ secrets.PYTHONPATH }}
+      LOG_FILE:        ${{ secrets.LOG_FILE }}
+      SUBTITLES_DIR:   ${{ secrets.SUBTITLES_DIR }}
+      SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY:    ${{ secrets.SUPABASE_KEY }}
+      USER:            ${{ secrets.USER }}
+      HOST:            ${{ secrets.HOST }}
+      APP_PORT:        ${{ secrets.APP_PORT }}
+      PORT:            ${{ secrets.PORT }}
+      DBNAME:          ${{ secrets.DBNAME }}
+      CONFIG_PATH:     config/config.yaml
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.12
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure Poetry (no venv)
+        run: poetry config virtualenvs.create false
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --only main
+
+      - name: Run tests
+        run: poetry run pytest --maxfail=1 --disable-warnings -q
+
+      - name: Build Docker image (validate Dockerfile)
+        run: docker build --file Dockerfile --tag video-rag-api:test-ci .
