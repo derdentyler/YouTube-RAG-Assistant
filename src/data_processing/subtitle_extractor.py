@@ -1,100 +1,105 @@
 import os
 import re
+from typing import Optional, List, Dict, Union
 from dotenv import load_dotenv
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    TranscriptsDisabled,
+    NoTranscriptFound,
+    Transcript,
+    TranscriptList,
+    FetchedTranscript
+)
+from transformers import AutoTokenizer
+
 from src.utils.config_loader import ConfigLoader
 from src.utils.logger_loader import LoggerLoader
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, Transcript, TranscriptList, FetchedTranscript
-from typing import Optional, List, Dict, Union
 
-
-load_dotenv()  # Загружаем переменные окружения
+load_dotenv()
 
 
 class SubtitleExtractor:
-    """Класс для работы с субтитрами YouTube."""
+    """Извлечение и чанкинг субтитров из YouTube."""
 
     def __init__(self) -> None:
-        """Инициализирует конфиг, логгер и пути."""
         self.config = ConfigLoader.get_config()
-        self.language: str = self.config.get("language", "en")  # Язык субтитров
-        self.download_path: str = os.getenv("SUBTITLE_DOWNLOAD_PATH", "downloads/subtitles")  # Путь сохранения субтитров
         self.logger = LoggerLoader.get_logger()
         self.api = YouTubeTranscriptApi()
 
-        os.makedirs(self.download_path, exist_ok=True)  # Создаем папку, если её нет
+        # Настройки пути и модели
+        self.download_path = os.getenv("SUBTITLES_DIR", "downloads/subtitles")
+        os.makedirs(self.download_path, exist_ok=True)
+
+        model_name = self.config["embedding_model"]
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+
+        # Настройки чанкинга
+        self.chunk_size = int(self.config.get("chunk_size_tokens", 200))
+        self.chunk_overlap = int(self.config.get("chunk_overlap_tokens", 50))
+
         self.logger.info("SubtitleExtractor инициализирован.")
 
     def extract_video_id(self, url: str) -> Optional[str]:
-        """Извлекает video_id из ссылки на YouTube.
-
-        Args:
-            url (str): Ссылка на видео.
-
-        Returns:
-            Optional[str]: video_id или None, если не удалось извлечь.
-        """
+        """Извлекает video_id из URL."""
         self.logger.info("Извлекаем video_id из ссылки: %s", url)
-
-        pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11})"  # Регулярка для извлечения video_id
-        match: Optional[re.Match] = re.search(pattern, url)  # Аннотация Optional[re.Match]
+        pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11})"
+        match = re.search(pattern, url)
 
         if match:
-            video_id: str = match.group(1)
+            video_id = match.group(1)
             self.logger.info("Найден video_id: %s", video_id)
             return video_id
 
-        self.logger.error("Ошибка: не удалось извлечь video_id из ссылки.")
+        self.logger.error("Не удалось извлечь video_id из ссылки.")
         return None
 
     def get_subtitles(self, video_id: str) -> Optional[List[Dict[str, Union[str, float]]]]:
-        """Загружает и объединяет субтитры в блоки нужной длительности.
-
-        Args:
-            video_id (str): ID YouTube-видео.
-
-        Returns:
-            Optional[List[Dict[str, Union[str, float]]]]: Список объединенных субтитров.
-        """
+        """Возвращает чанки субтитров по токенам с оверлапом."""
         self.logger.info("Загружаем субтитры для video_id: %s", video_id)
         try:
             transcripts: TranscriptList = self.api.list(video_id)
-            transcript: Transcript = transcripts.find_transcript(['ru'])
+            transcript: Transcript = transcripts.find_transcript([self.config.get("language", "ru")])
             fetched: FetchedTranscript = transcript.fetch()
 
-            raw_subs = [
-                {"text": entry.text, "start": entry.start, "duration": entry.duration}
-                for entry in fetched
-            ]
+            # Собираем полный текст и соответствие символов к таймкодам
+            full_text = ""
+            char_times = []  # Один таймкод на каждый символ
+            for entry in fetched:
+                text = entry.text.strip()
+                start = entry.start
+                full_text += text + " "
+                char_times.extend([start] * (len(text) + 1))
 
-            block_duration = int(self.config.get("subtitle_block_duration", 60))
-            self.logger.info(f"Будем объединять субтитры в блоки по {block_duration} секунд.")
+            # Токенизируем с оффсетами
+            encoding = self.tokenizer(full_text, return_offsets_mapping=True, add_special_tokens=False)
+            offsets = encoding.offset_mapping
 
-            merged_subs: List[Dict[str, Union[str, float]]] = []
-            current_block = {"text": "", "start": None, "duration": 0.0}
+            # Разбиваем на чанки
+            chunks = []
+            i = 0
+            while i < len(offsets):
+                end_i = min(i + self.chunk_size, len(offsets))
+                char_start = offsets[i][0]
+                char_end = offsets[end_i - 1][1]
 
-            for entry in raw_subs:
-                start, duration, text = entry["start"], entry["duration"], entry["text"]
+                text_chunk = full_text[char_start:char_end].strip()
+                start_time = char_times[char_start]
+                end_time = char_times[char_end - 1]
+                duration = max(end_time - start_time, 0.0)
 
-                if current_block["start"] is None:
-                    current_block["start"] = start
+                chunks.append({
+                    "text": text_chunk,
+                    "start": start_time,
+                    "duration": duration
+                })
 
-                current_block["text"] += " " + text
-                current_block["duration"] += duration
+                i += self.chunk_size - self.chunk_overlap
 
-                # Сохраняем блок, если достигли лимита по времени
-                if current_block["duration"] >= block_duration:
-                    merged_subs.append(current_block.copy())
-                    current_block = {"text": "", "start": None, "duration": 0.0}
-
-            # Добавим остатки, если есть
-            if current_block["text"]:
-                merged_subs.append(current_block)
-
-            self.logger.info(f"Всего блоков субтитров после объединения: {len(merged_subs)}")
-            return merged_subs
+            self.logger.info(f"Чанков получено: {len(chunks)}")
+            return chunks
 
         except TranscriptsDisabled:
-            self.logger.error("Субтитры отключены для этого видео.")
+            self.logger.error("Субтитры отключены для видео.")
         except NoTranscriptFound:
             self.logger.error("Субтитры не найдены для видео ID: %s", video_id)
         except Exception as e:

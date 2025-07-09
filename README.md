@@ -51,8 +51,9 @@ retriever:
   top_k: 5
   similarity_metric: "cosine"
 
-# Subtitle block duration in seconds (used for merging short phrases)
-subtitle_block_duration: 60
+# Chunk token size and overlap
+chunk_size_tokens: 200
+chunk_overlap_tokens: 50
 ```
 
 ### Step 5: Run the Application
