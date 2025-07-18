@@ -15,5 +15,6 @@ retriever:
   top_k: 5
   similarity_metric: "cosine"
 
-# Длительность одного блока субтитров в секундах (используется для объединения коротких фраз)
-subtitle_block_duration: 60
+# Размер одного чанка в токенах и перекрытия
+chunk_size_tokens: 200
+chunk_overlap_tokens: 50
