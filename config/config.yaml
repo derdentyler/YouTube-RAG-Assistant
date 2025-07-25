@@ -12,13 +12,13 @@ models:
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 retriever:
-  top_k: 10
+  top_k: 6
   similarity_metric: "cosine"
 
 reranker:
   use_reranker: true
-  top_k: 5
+  top_k: 3
 
 # Размер одного чанка в токенах и перекрытия
-chunk_size_tokens: 200
-chunk_overlap_tokens: 50
+chunk_size_tokens: 100
+chunk_overlap_tokens: 20
