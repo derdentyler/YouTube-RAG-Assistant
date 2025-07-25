@@ -12,8 +12,12 @@ models:
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 retriever:
-  top_k: 5
+  top_k: 10
   similarity_metric: "cosine"
+
+reranker:
+  use_reranker: true
+  top_k: 5
 
 # Длительность одного блока субтитров в секундах (используется для объединения коротких фраз)
 subtitle_block_duration: 60

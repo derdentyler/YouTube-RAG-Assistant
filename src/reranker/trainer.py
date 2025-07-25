@@ -1,33 +1,73 @@
+# src/reranker/trainer.py
+import json
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
-from typing import Tuple
-from .ml_model import LogisticRegressionReranker
+from pathlib import Path
+from sklearn.linear_model import LogisticRegression
+from sentence_transformers import SentenceTransformer
+import joblib
 
-class RerankerTrainer:
-    def __init__(self, model=None, test_size=0.2, random_state=42):
-        self.model = model or LogisticRegressionReranker()
-        self.test_size = test_size
-        self.random_state = random_state
+from src.reranker.features import FeatureBuilder
 
-    def train_and_evaluate(
-        self,
-        X: np.ndarray,
-        y: np.ndarray
-    ) -> Tuple[float, LogisticRegressionReranker]:
-        # Разбиваем на train и val
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.random_state
+
+def main(
+    train_path: str = "downloads/reranker/train_data.json",
+    model_out: str = "models/logreg_reranker.pkl"
+):
+    # 1. Загрузка размеченного датасета
+    with open(train_path, encoding="utf-8") as f:
+        raw = json.load(f)
+
+    # Плоский список записей: query, text, label
+    records = []
+    for item in raw:
+        query = item["query"]
+        for frag in item.get("fragments", []):
+            records.append({
+                "query": query,
+                "text": frag["text"],
+                "label": frag["label"]
+            })
+
+    # 2. Эмбеддинги и токены
+    model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    emb_model = SentenceTransformer(model_name)
+
+    queries = [r["query"] for r in records]
+    texts   = [r["text"]  for r in records]
+    labels  = np.array([r["label"] for r in records])
+
+    # Получаем NumPy эмбеддинги
+    q_embs = emb_model.encode(queries, convert_to_tensor=False)
+    d_embs = emb_model.encode(texts,  convert_to_tensor=False)
+
+    # Токенизация для фич
+    q_tokens = [q.lower().split() for q in queries]
+    d_tokens = [t.lower().split() for t in texts]
+
+    # 3. Построение признаков через FeatureBuilder
+    fb = FeatureBuilder()
+    X_list = []
+    for i in range(len(records)):
+        feats = fb.build(
+            query_emb=q_embs[i],
+            doc_embs=[d_embs[i]],
+            query_tokens=q_tokens[i],
+            doc_tokens_list=[d_tokens[i]],
+            doc_texts=[texts[i]]
         )
+        X_list.append(feats[0])  # единственный вектор из списка
 
-        # Обучаем модель
-        self.model.train(X_train, y_train)
+    X = np.vstack(X_list)
 
-        # Предсказываем вероятности на валидации
-        y_pred_proba = self.model.predict(X_val)
+    # 4. Обучение модели
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X, labels)
 
-        # Считаем ROC-AUC
-        auc = roc_auc_score(y_val, y_pred_proba)
-        print(f"Validation ROC-AUC: {auc:.4f}")
+    # 5. Сохранение модели
+    Path(model_out).parent.mkdir(exist_ok=True, parents=True)
+    joblib.dump(clf, model_out)
+    print(f"Model saved to {model_out}")
 
-        return auc, self.model
+
+if __name__ == "__main__":
+    main()

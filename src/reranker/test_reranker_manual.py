@@ -1,49 +1,60 @@
 import numpy as np
-from src.reranker.reranker import Reranker
 from sentence_transformers import SentenceTransformer
+from src.reranker.reranker import Reranker
 
-# Примерные входные данные
-query_text = "Как работает закон притяжения?"
-doc_texts = [
-    "Закон притяжения объясняет, как мысли материализуются.",
-    "Ньютон сформулировал законы механики.",
-    "Видео рассказывает про принципы успеха.",
-    "Это описание гравитации и её действия."
-]
+def to_numpy(vec):
+    """Ensure embedding is a NumPy array."""
+    if hasattr(vec, "cpu"):
+        return vec.cpu().numpy()
+    return vec
 
-# Загружаем модель sentence-transformers
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+def run_example(query_text, doc_texts, reranker, embed_model):
+    # 1) Получаем эмбеддинги как NumPy
+    query_emb = to_numpy(embed_model.encode(query_text, convert_to_tensor=False))
+    doc_embs = [
+        to_numpy(e) for e in embed_model.encode(doc_texts, convert_to_tensor=False)
+    ]
 
-# ШАГ 1: Получаем эмбеддинги, строго следя за типами!
+    # 2) Токенизация
+    query_tokens = query_text.lower().split()
+    doc_tokens_list = [text.lower().split() for text in doc_texts]
 
-# Здесь используем convert_to_tensor=True, чтобы получить torch.Tensor
-query_embedding = model.encode(query_text, convert_to_tensor=True)
-doc_embeddings = model.encode(doc_texts, convert_to_tensor=True)
+    # 3) Реранкинг
+    ranked = reranker.rerank(
+        query_emb,
+        doc_embs,
+        query_tokens,
+        doc_tokens_list,
+        doc_texts
+    )
 
-# ШАГ 2: Если получили torch.Tensor — конвертируем в numpy.ndarray
-if hasattr(query_embedding, "cpu"):
-    query_embedding = query_embedding.cpu().numpy()
+    # 4) Печать результатов
+    print(f"\nЗапрос: {query_text}")
+    for rank, (text, score) in enumerate(ranked, start=1):
+        print(f"{rank}. [{score:.3f}] {text}")
 
-# doc_embeddings — это батч эмбеддингов, преобразуем каждый элемент
-doc_embeddings = [emb.cpu().numpy() if hasattr(emb, "cpu") else emb for emb in doc_embeddings]
 
-# ШАГ 3: Подготавливаем токены для функций фичей
-query_tokens = query_text.lower().split()
-doc_tokens_list = [text.lower().split() for text in doc_texts]
+if __name__ == "__main__":
+    # 0) Инициализация модели эмбеддингов и реранкера
+    embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    reranker = Reranker("models/logreg_reranker.pkl")
 
-# Загружаем обученный реранкер
-reranker = Reranker("models/logreg_reranker.pkl")
+    # Пример 1
+    query1 = "Как работает закон притяжения?"
+    docs1 = [
+        "Закон притяжения объясняет, как мысли материализуются.",
+        "Ньютон сформулировал законы механики.",
+        "Видео рассказывает про принципы успеха.",
+        "Футбол меня притягивает с детства"
+    ]
+    run_example(query1, docs1, reranker, embed_model)
 
-# ШАГ 4: Запускаем реранкинг
-result = reranker.rerank(
-    query_embedding,
-    doc_embeddings,  # теперь список np.ndarray
-    query_tokens,
-    doc_tokens_list,
-    doc_texts
-)
-
-# Вывод результата
-print("\nРезультаты реранкинга:")
-for i, (text, score) in enumerate(result, 1):
-    print(f"{i}. [{score:.3f}] {text}")
+    # Пример 2
+    query2 = "Что такое квантовая запутанность?"
+    docs2 = [
+        "Квантовая запутанность описывает корреляцию между частицами.",
+        "Это явление не объясняется классической физикой.",
+        "Запутанность позволяет мгновенно влиять на состояние другой частицы.",
+        "Ньютон предложил три закона движения."
+    ]
+    run_example(query2, docs2, reranker, embed_model)

@@ -1,6 +1,7 @@
 import numpy as np
-from typing import List, Tuple, Set
+from typing import List, Set
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine
 
 # Набор русскоязычных стоп-слов
 STOPWORDS: Set[str] = {
@@ -13,73 +14,109 @@ STOPWORDS: Set[str] = {
     "себе", "под", "будет", "ж", "тогда", "кто", "этот"
 }
 
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    a_norm = np.linalg.norm(a)
-    b_norm = np.linalg.norm(b)
-    if a_norm == 0 or b_norm == 0:
-        return 0.0
-    return float(np.dot(a, b) / (a_norm * b_norm))
+def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    if a.ndim != 1 or b.ndim != 1:
+        raise ValueError("Input embeddings must be 1D arrays.")
+    return float(sklearn_cosine(a.reshape(1, -1), b.reshape(1, -1))[0, 0])
+
 
 def token_overlap(query_tokens: List[str], doc_tokens: List[str]) -> float:
+    """Fraction of unique query tokens appearing in document tokens."""
     if not query_tokens:
         return 0.0
-    query_set = set(query_tokens)
-    doc_set = set(doc_tokens)
-    overlap = query_set.intersection(doc_set)
-    return len(overlap) / len(query_set)
+    query_set = set(query_tokens) - STOPWORDS
+    doc_set = set(doc_tokens) - STOPWORDS
+    return len(query_set & doc_set) / len(query_set) if query_set else 0.0
+
 
 def stopword_ratio(doc_tokens: List[str]) -> float:
+    """Ratio of stopwords to total tokens in document."""
     if not doc_tokens:
         return 0.0
-    stop_count = sum(1 for t in doc_tokens if t in STOPWORDS)
-    return stop_count / len(doc_tokens)
+    return sum(1 for t in doc_tokens if t in STOPWORDS) / len(doc_tokens)
+
 
 def length_diff_ratio(query_text: str, doc_text: str) -> float:
-    len_q = len(query_text)
-    len_d = len(doc_text)
+    """Relative length difference between query and document text."""
+    len_q, len_d = len(query_text), len(doc_text)
     if len_q + len_d == 0:
         return 0.0
-    return abs(len_d - len_q) / (len_q + 1e-5)
+    return abs(len_d - len_q) / (len_q + len_d)
 
-def position_feature(doc_index: int, total_docs: int) -> float:
-    if total_docs <= 1:
+
+def position_feature(index: int, total: int) -> float:
+    """Normalized position of document in result list."""
+    if total <= 1:
         return 0.0
-    return float(doc_index) / float(total_docs - 1)
+    return index / (total - 1)
 
-def tfidf_similarity(query_text: str, doc_text: str, vectorizer: TfidfVectorizer) -> float:
-    try:
-        tfidf_matrix = vectorizer.transform([query_text, doc_text])
-        q_vec = tfidf_matrix[0].toarray()[0]
-        d_vec = tfidf_matrix[1].toarray()[0]
-        return cosine_similarity(q_vec, d_vec)
-    except Exception:
-        return 0.0
 
-def build_features(
-    query_embedding: np.ndarray,
-    doc_embeddings: List[np.ndarray],
-    query_tokens: List[str],
-    doc_tokens_list: List[List[str]],
-    doc_texts: List[str],
-    doc_indices: List[int],
-    total_docs: int
-) -> List[Tuple[int, np.ndarray]]:
-    features = []
-    query_text = ' '.join(query_tokens)
+class FeatureBuilder:
+    """
+    Builds feature vectors for query-document pairs.
+    Responsibilities separated:
+    - Initialize TF-IDF vectorizer once per query
+    - Compute multiple features for each document
+    """
 
-    # Обучаем TF-IDF vectorizer на запросе и всех фрагментах
-    tfidf_vectorizer = TfidfVectorizer()
-    tfidf_vectorizer.fit([query_text] + doc_texts)
+    def __init__(self) -> None:
+        self.vectorizer: TfidfVectorizer | None = None
+        self.query_text: str | None = None
 
-    for emb, tokens, text, idx in zip(doc_embeddings, doc_tokens_list, doc_texts, doc_indices):
-        feats = [
-            cosine_similarity(query_embedding, emb),                      # 1. косинусная близость
-            token_overlap(query_tokens, tokens),                          # 2. пересечение токенов
-            stopword_ratio(tokens),                                       # 3. доля стоп-слов
-            length_diff_ratio(query_text, text),                          # 4. относительная длина
-            position_feature(idx, total_docs),                            # 5. нормализованная позиция
-            tfidf_similarity(query_text, text, tfidf_vectorizer)          # 6. TF-IDF сходство
-        ]
-        features.append((idx, np.array(feats, dtype=float)))
+    def fit_tfidf(self, query_text: str, doc_texts: List[str]) -> None:
+        """
+        Fit TF-IDF on combined query and document texts.
+        Must be called before computing tfidf_similarity.
+        """
+        self.query_text = query_text
+        try:
+            self.vectorizer = TfidfVectorizer()
+            self.vectorizer.fit([query_text] + doc_texts)
+        except Exception as e:
+            raise RuntimeError(f"TF-IDF vectorizer fit failed: {e}")
 
-    return features
+    def tfidf_similarity(self, doc_text: str) -> float:
+        """
+        Compute cosine similarity between query and document in TF-IDF space.
+        Requires fit_tfidf to be called first.
+        """
+        if self.vectorizer is None or self.query_text is None:
+            raise RuntimeError("Vectorizer not fitted. Call fit_tfidf first.")
+        try:
+            mat = self.vectorizer.transform([self.query_text, doc_text]).toarray()
+            return cosine_sim(mat[0], mat[1])
+        except Exception as e:
+            # Only catch TF-IDF specific errors
+            return 0.0
+
+    def build(self,
+              query_emb: np.ndarray,
+              doc_embs: List[np.ndarray],
+              query_tokens: List[str],
+              doc_tokens_list: List[List[str]],
+              doc_texts: List[str]
+              ) -> List[np.ndarray]:
+        """
+        Compute feature vectors for all document candidates for a single query.
+
+        Returns:
+            List of feature arrays, in same order as doc_texts.
+        """
+        total = len(doc_texts)
+        # Initialize TF-IDF once
+        q_text = ' '.join(query_tokens)
+        self.fit_tfidf(q_text, doc_texts)
+
+        features: List[np.ndarray] = []
+        for idx, (emb, tokens, text) in enumerate(zip(doc_embs, doc_tokens_list, doc_texts)):
+            feats = [
+                cosine_sim(query_emb, emb),           # embedding similarity
+                token_overlap(query_tokens, tokens),  # lexical overlap
+                stopword_ratio(tokens),               # noise ratio
+                length_diff_ratio(q_text, text),      # length difference
+                position_feature(idx, total),         # result position
+                self.tfidf_similarity(text)           # TF-IDF similarity
+            ]
+            features.append(np.array(feats, dtype=float))
+        return features
