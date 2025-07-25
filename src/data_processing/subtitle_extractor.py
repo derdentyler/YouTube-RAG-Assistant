@@ -1,10 +1,14 @@
 import os
 import re
-from typing import List, Dict, Optional, Union
 from datetime import datetime
+from typing import List, Dict, Optional, Union
 
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, TranscriptList
-from transformers import AutoTokenizer
+from youtube_transcript_api import (
+    YouTubeTranscriptApi,
+    TranscriptsDisabled,
+    NoTranscriptFound,
+    TranscriptList,
+)
 from yt_dlp import YoutubeDL
 
 from src.utils.config_loader import ConfigLoader
@@ -13,52 +17,78 @@ from src.utils.subtitles_cleaner import clean_subtitles
 
 
 class SubtitleExtractor:
+    """
+    Извлечение и подготовка субтитров из YouTube-видео.
+
+    Пайплайн:
+      1. Получение raw‑сегментов через API или VTT‑fallback.
+      2. Очистка и дедупликация подряд идущих сегментов.
+      3. Time‑based chunking: окна duration/overlap из конфига.
+      4. Возврат списка чистых, уникальных фрагментов для RAG.
+    """
+
     def __init__(self) -> None:
         self.config = ConfigLoader.get_config()
         self.logger = LoggerLoader.get_logger()
 
+        # YouTube API и язык
         self.api = YouTubeTranscriptApi()
         self.language = self.config.get("language", "ru")
-        self.chunk_size = int(self.config.get("chunk_size_tokens", 200))
-        self.chunk_overlap = int(self.config.get("chunk_overlap_tokens", 50))
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config["embedding_model"],
-            use_fast=True
-        )
+        # Параметры временных окон (секунды)
+        self.block_duration = int(self.config.get("subtitle_block_duration", 60))
+        self.block_overlap = int(self.config.get("subtitle_block_overlap", self.block_duration // 2))
 
+        # Путь для временного хранения VTT
         self.download_path = os.getenv("SUBTITLES_DIR", "downloads/subtitles")
         os.makedirs(self.download_path, exist_ok=True)
 
-    def extract_video_id(self, url: str) -> Optional[str]:
-        match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})", url)
-        return match.group(1) if match else None
+        self.logger.info("SubtitleExtractor инициализирован.")
+
+    def extract_video_id(self, ref: str) -> Optional[str]:
+        """
+        Если ref — полный URL, извлекает video_id,
+        иначе возвращает ref как video_id (если формат корректен).
+        """
+        if ref.startswith("http"):
+            m = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})", ref)
+            return m.group(1) if m else None
+        return ref if re.fullmatch(r"[0-9A-Za-z_-]{11}", ref) else None
 
     def fetch_subtitles_api(self, video_id: str) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """
+        Получает raw‑сегменты через YouTubeTranscriptApi.
+        Формат: [{"text", "start", "duration"}, ...]
+        """
         try:
             transcripts: TranscriptList = self.api.list(video_id)
-            tr = None
             try:
                 tr = transcripts.find_transcript([self.language])
             except:
                 tr = transcripts.find_generated_transcript([self.language])
-            if tr:
-                return [{"text": e.text, "start": e.start, "duration": e.duration} for e in tr.fetch()]
+            segments = [
+                {"text": e.text, "start": e.start, "duration": e.duration}
+                for e in tr.fetch()
+            ]
+            self.logger.info(f"API fetched {len(segments)} segments")
+            return segments
         except (TranscriptsDisabled, NoTranscriptFound):
             return None
         except Exception as e:
-            self.logger.error("API error: %s", e)
+            self.logger.error(f"API error: {e}")
             return None
 
     def parse_vtt(self, path: str) -> List[Dict[str, Union[str, float]]]:
-        def parse_ts(ts: str) -> float:
-            ts0 = ts.split()[0]
-            dt = datetime.strptime(ts0, "%H:%M:%S.%f")
+        """
+        Парсит VTT-файл в raw сегменты без очистки.
+        """
+        def _ts(val: str) -> float:
+            ts = val.split()[0]
+            dt = datetime.strptime(ts, "%H:%M:%S.%f")
             return dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
 
         raw, buffer = [], []
-        start, end = 0.0, 0.0
-
+        start = end = 0.0
         with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -73,7 +103,7 @@ class SubtitleExtractor:
                         })
                         buffer = []
                     a, b = line.split("-->")
-                    start, end = parse_ts(a), parse_ts(b)
+                    start, end = _ts(a), _ts(b)
                 else:
                     buffer.append(line)
             if buffer:
@@ -82,9 +112,13 @@ class SubtitleExtractor:
                     "start": start,
                     "duration": end - start
                 })
+        self.logger.info(f"VTT parsed {len(raw)} raw segments")
         return raw
 
     def fetch_subtitles_vtt(self, video_id: str) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """
+        Fallback: скачивает VTT через yt-dlp и парсит его.
+        """
         url = f"https://www.youtube.com/watch?v={video_id}"
         opts = {
             "skip_download": True,
@@ -98,53 +132,78 @@ class SubtitleExtractor:
         try:
             with YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-            fname = next((f for f in os.listdir(self.download_path)
-                          if f.startswith(info["id"]) and f.endswith(".vtt")), None)
-            if fname:
-                return self.parse_vtt(os.path.join(self.download_path, fname))
+            vid = info["id"]
+            fname = next(
+                (f for f in os.listdir(self.download_path)
+                 if f.startswith(vid) and f.endswith(".vtt")),
+                None
+            )
+            if not fname:
+                self.logger.error(f"No .vtt for {vid}")
+                return None
+            return self.parse_vtt(os.path.join(self.download_path, fname))
         except Exception as e:
-            self.logger.error("yt-dlp error: %s", e)
-        return None
+            self.logger.error(f"yt-dlp error: {e}")
+            return None
 
-    def chunk_text(self, segments: List[Dict[str, Union[str, float]]]) -> List[Dict[str, Union[str, float]]]:
+    def chunk_by_time(self, segments: List[Dict[str, Union[str, float]]]) -> List[str]:
+        """
+        Объединяет очищенные и дедуплицированные сегменты
+        в текстовые окна по времени.
+        """
+        # 1) Очистка и дедупликация подрядных повторов
         cleaned = clean_subtitles(segments)
-
-        full_text = ""
-        char_times = []
+        dedup, prev = [], None
         for seg in cleaned:
             text = seg["text"]
-            full_text += text + " "
-            char_times.extend([seg["start"]] * (len(text) + 1))
+            if text != prev:
+                dedup.append(seg)
+            prev = text
 
-        offsets = self.tokenizer(full_text, return_offsets_mapping=True, add_special_tokens=False).offset_mapping
-        chunks = []
-        i = 0
-        while i < len(offsets):
-            j = min(i + self.chunk_size, len(offsets))
-            cs, ce = offsets[i][0], offsets[j - 1][1]
-            chunk_text = full_text[cs:ce].strip()
-            if not chunk_text:
-                i += self.chunk_size - self.chunk_overlap
-                continue
-            chunks.append({
-                "text": chunk_text,
-                "start": char_times[cs],
-                "duration": max(char_times[ce - 1] - char_times[cs], 0.0)
-            })
-            i += self.chunk_size - self.chunk_overlap
+        if not dedup:
+            return []
 
-        seen = set()
-        unique = []
-        for ch in chunks:
-            if ch["text"] not in seen:
-                seen.add(ch["text"])
-                unique.append(ch)
-        return unique
+        # 2) Определяем временные границы
+        starts = [s["start"] for s in dedup]
+        t0 = starts[0]
+        t_end = starts[-1] + dedup[-1]["duration"]
 
-    def get_subtitles(self, video_id: str) -> Optional[List[Dict[str, Union[str, float]]]]:
-        entries = self.fetch_subtitles_api(video_id)
-        if not entries:
-            entries = self.fetch_subtitles_vtt(video_id)
-        if not entries:
+        # 3) Собираем окна
+        windows = []
+        t = t0
+        while t < t_end:
+            parts = [
+                s["text"]
+                for s in dedup
+                if t <= s["start"] < t + self.block_duration
+            ]
+            if parts:
+                windows.append(" ".join(parts))
+            t += (self.block_duration - self.block_overlap)
+
+        return windows
+
+    def get_subtitles(self, video_ref: str) -> Optional[List[Dict[str, Union[str, float]]]]:
+        """
+        Основной метод: принимает URL или video_id,
+        возвращает список {"text", start=0.0, duration=0.0}.
+        """
+        vid = self.extract_video_id(video_ref)
+        if not vid:
+            self.logger.error(f"Invalid video reference: {video_ref}")
             return None
-        return self.chunk_text(entries)
+
+        # 1) Пытаемся через API
+        segments = self.fetch_subtitles_api(vid)
+        # 2) Иначе — через VTT
+        if segments is None:
+            segments = self.fetch_subtitles_vtt(vid)
+        if not segments:
+            self.logger.error(f"No subtitles for {vid}")
+            return None
+
+        # 3) Time‑based chunking
+        windows = self.chunk_by_time(segments)
+
+        # 4) Подготовка финального списка для RAG
+        return [{"text": w, "start": 0.0, "duration": 0.0} for w in windows]
