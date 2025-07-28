@@ -127,9 +127,9 @@ A post-retrieval step that reorders candidate transcript fragments using a train
 Example configuration (`config.yaml`):
 
 ```yaml
-use_reranker: true
-
 reranker:
+  use_reranker: true
+  top_k: 3
   model_path: "models/reranker/logreg_reranker.pkl"
 ```
 
