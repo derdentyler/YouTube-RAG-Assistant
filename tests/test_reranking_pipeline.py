@@ -8,7 +8,7 @@ from src.reranker.reranker import Reranker
 
 @pytest.fixture(scope="module", autouse=True)
 def train_and_set_model(tmp_path):
-    # 1) Тренируем простую модель
+    # Тренируем модель
     X = np.array([[0.0], [1.0]])
     y = np.array([0, 1])
     model = LogisticRegressionReranker()
@@ -16,22 +16,17 @@ def train_and_set_model(tmp_path):
     p = tmp_path / "lr.pkl"
     model.save(str(p))
 
-    # 2) Прописуем путь в конфиге
-    cfg = ConfigLoader.get_config()
-    cfg.setdefault("reranker", {})["model_path"] = str(p)
+    # Настраиваем ConfigLoader.instance
+    loader = ConfigLoader()
+    loader.config = {"reranker": {"model_path": str(p)}}
+    ConfigLoader._instance = loader
 
 def test_end_to_end_rerank():
-    # читаем модельный путь из конфига
-    cfg = ConfigLoader.get_config()
-    model_path = cfg["reranker"]["model_path"]
-
+    model_path = ConfigLoader._instance.config["reranker"]["model_path"]
     rr = Reranker(model_path=model_path)
-
-    # синтетические эмбеддинги
     q_emb = np.array([0.0])
     doc_embs = [np.array([1.0]), np.array([0.0])]
     texts = ["low", "high"]
-
     res = rr.rerank(
         query_embedding=q_emb,
         doc_embeddings=doc_embs,
@@ -39,7 +34,5 @@ def test_end_to_end_rerank():
         doc_tokens_list=[["x"], ["y"]],
         doc_texts=texts
     )
-
-    # Ожидаем, что "high" (label=1) будет первым
     assert res[0][0] == "high"
     assert res[1][0] == "low"

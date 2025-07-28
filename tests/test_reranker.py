@@ -1,52 +1,48 @@
 import numpy as np
-import os
 import pytest
+import os
+
+from src.utils.config_loader import ConfigLoader
+from src.reranker.reranker import Reranker
 
 class DummyFB:
-    def __init__(self):
-        pass
     def build(self, **kwargs):
-        # вернёт два вектора длины 1
         return [np.array([0.2]), np.array([0.8])]
 
 class DummyModel:
-    def __init__(self):
-        pass
     def load(self, path): pass
     def predict(self, X): return [0.2, 0.8]
 
 @pytest.fixture(autouse=True)
-def patch_dependencies(monkeypatch, tmp_path):
-    # создаём пустой файл модели
-    p = tmp_path / "dummy.pkl"
-    p.write_text("dummy")
-    # подменяем ConfigLoader внутри Reranker, чтобы он взял tmp_path
-    from src.utils.config_loader import ConfigLoader
-    cfg = ConfigLoader.get_config()
-    cfg["reranker"]["model_path"] = str(p)
-    # подменяем зависимости
+def patch_reranker_deps(monkeypatch, tmp_path):
+    # 1) Создаём файл модели
+    pick = tmp_path / "dummy.pkl"
+    pick.write_text("ok")
+
+    # 2) Создаём и настраиваем инстанс ConfigLoader
+    loader = ConfigLoader()
+    loader.config = {"reranker": {"model_path": str(pick)}}
+    # Гарантируем, что get_config() вернёт наш loader.config
+    ConfigLoader._instance = loader
+
+    # 3) Мокаем зависимости
     monkeypatch.setattr("src.reranker.reranker.LogisticRegressionReranker", lambda: DummyModel())
     monkeypatch.setattr("src.reranker.reranker.FeatureBuilder", lambda: DummyFB())
 
-def test_reranker_file_not_found(monkeypatch):
-    # явно указываем несуществующий путь
-    from src.reranker.reranker import Reranker as RR
+def test_init_raises_if_missing():
+    # Перепишем путь так, чтобы не существовал
+    loader = ConfigLoader._instance
+    loader.config["reranker"]["model_path"] = "/no/such/file.pkl"
     with pytest.raises(FileNotFoundError):
-        RR(model_path="no_file.pkl")
+        Reranker(model_path=loader.config["reranker"]["model_path"])
 
 def test_rerank_orders_correctly():
-    # читаем путь из фикстуры (ConfigLoader уже был поправлен)
-    from src.utils.config_loader import ConfigLoader
-    cfg = ConfigLoader.get_config()
-    path = cfg["reranker"]["model_path"]
-
-    from src.reranker.reranker import Reranker
-    rr = Reranker(model_path=path)
-
+    # В конфиге уже правильный путь из фикстуры
+    model_path = ConfigLoader._instance.config["reranker"]["model_path"]
+    rr = Reranker(model_path=model_path)
     texts = ["low", "high"]
     q_emb = np.array([0.])
     doc_embs = [np.array([0.]), np.array([0.])]
-
     res = rr.rerank(
         query_embedding=q_emb,
         doc_embeddings=doc_embs,
