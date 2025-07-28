@@ -195,3 +195,7 @@ In the future, I plan to add the following features:
 
 - **Refactoring**: Add type annotations. Add Config pydantic-class.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
+
+## Future PlansContact
+For any questions or suggestions, feel free to reach out: 📧 [alexander.polybinsky@gmail.com
+]()
