@@ -42,7 +42,8 @@ class RAGModel:
             embed_model_name = config.get("embedding_model")
             self.embed_model = SentenceTransformer(embed_model_name)
             # Инициализируем reranker
-            reranker_path = config.get("reranker_model_path", "models/logreg_reranker.pkl")
+            reranker_cfg = config.get("reranker", {})
+            reranker_path = reranker_cfg.get("model_path")
             self.reranker = Reranker(reranker_path)
 
         self.logger.info(

@@ -6,7 +6,9 @@ __pycache__/
 venv/
 .git/
 /logs
-/models
 .idea
 /downloads
 /notebooks
+models/**
+!models/reranker/
+!models/reranker/logreg_reranker.pkl

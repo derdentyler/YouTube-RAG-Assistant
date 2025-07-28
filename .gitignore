@@ -3,7 +3,9 @@ __pycache__/
 *.pyo
 .env
 /logs
-/models
+/models/**
+!/models/reranker/
+!/models/reranker/logreg_reranker.pkl
 .idea
 /downloads
 /notebooks

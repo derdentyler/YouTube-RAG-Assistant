@@ -11,7 +11,7 @@ from src.reranker.features import FeatureBuilder
 
 def main(
     train_path: str = "downloads/reranker/train_data.json",
-    model_out: str = "models/logreg_reranker.pkl"
+    model_out: str = "models/reranker/logreg_reranker.pkl"
 ):
     # 1. Загрузка размеченного датасета
     with open(train_path, encoding="utf-8") as f:

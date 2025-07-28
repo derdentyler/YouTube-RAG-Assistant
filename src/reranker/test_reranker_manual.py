@@ -37,7 +37,7 @@ def run_example(query_text, doc_texts, reranker, embed_model):
 if __name__ == "__main__":
     # 0) Инициализация модели эмбеддингов и реранкера
     embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    reranker = Reranker("models/logreg_reranker.pkl")
+    reranker = Reranker("models/reranker/logreg_reranker.pkl")
 
     # Пример 1
     query1 = "Как работает закон притяжения?"

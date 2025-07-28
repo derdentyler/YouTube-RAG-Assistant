@@ -2,14 +2,17 @@ import numpy as np
 from typing import List, Tuple
 from src.reranker.features import FeatureBuilder
 from src.reranker.ml_model import LogisticRegressionReranker
+import os
 
 
 class Reranker:
     """
     Reranker class: loads a trained model and re-ranks document fragments based on features.
     """
-    def __init__(self, model_path: str = "models/logreg_reranker.pkl") -> None:
+    def __init__(self, model_path: str) -> None:
         self.model = LogisticRegressionReranker()
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Reranker model not found at {model_path}")
         self.model.load(model_path)
         self.feature_builder = FeatureBuilder()
 
