@@ -71,7 +71,8 @@ class FeatureBuilder:
         """
         self.query_text = query_text
         try:
-            self.vectorizer = TfidfVectorizer()
+            # включаем слова длины ≥1, чтобы 'x','z' тоже попадали
+            self.vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
             self.vectorizer.fit([query_text] + doc_texts)
         except Exception as e:
             raise RuntimeError(f"TF-IDF vectorizer fit failed: {e}")
