@@ -113,11 +113,12 @@ class RAGModel:
             else:
                 selected = [t for t, _ in results[: self.retriever_top_k]]
 
+            # Log each chosen fragment (first 100 chars)
+            for i, frag in enumerate(selected):
+                self.logger.info(f"Selected fragment {i + 1}/{len(selected)}: {frag[:100]!r}")
+
             context = "\n".join(selected)
 
-            # 5. Generate answer
-            prompt = self.prompt_template.format(query=query, context=context)
-            self.logger.info(f"Prompt: {prompt[:200]}...")
             return self._generate_answer(query, context)
 
         except Exception as e:
@@ -131,7 +132,7 @@ class RAGModel:
         start = time.time()
         try:
             prompt = self.prompt_template.format(query=query, context=context)
-            self.logger.info(f"Сформированный промпт: {prompt[:500]}...")
+            self.logger.info(f"Сформированный промпт (200 первых символов): {prompt[:200]}...")
             answer = self.llm_model.generate(prompt, max_length=1024)
             self.logger.info(f"Ответ сгенерирован за {time.time() - start:.2f} сек.")
             return answer.strip()

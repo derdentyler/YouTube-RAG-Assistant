@@ -4,9 +4,9 @@ Based on the context below, answer the question using only the provided informat
 Do not fabricate or infer anything not explicitly stated.
 If the context does not contain the answer, state that the information is insufficient.
 Your answer must be brief, precise, and to the point.
+Be concise: limit your answer to no more than 100 words.
+Do not include any code, examples, commentary, URLs, greetings or sign‑offs—only the direct answer.
 Avoid repetition and unnecessary explanations.
-Limit your answer to 100 words.
-Before returning, re‑check your answer for redundant phrases and remove them.
 
 Context:
 {context}
