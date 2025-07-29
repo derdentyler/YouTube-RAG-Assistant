@@ -1,10 +1,16 @@
-На основе приведённого ниже контекста ответь на вопрос. Используй только информацию из контекста.
-Не выдумывай и не добавляй ничего от себя. Если точного ответа в контексте нет — напиши, что информации недостаточно.
-Ответ должен быть кратким, точным и по существу. Избегай повторений и избыточных пояснений.
+System:
+Answer in Russian.
+Based on the context below, answer the question using only the provided information.
+Do not fabricate or infer anything not explicitly stated.
+If the context does not contain the answer, state that the information is insufficient.
+Your answer must be brief, precise, and to the point.
+Avoid repetition and unnecessary explanations.
+Limit your answer to 100 words.
+Before returning, re‑check your answer for redundant phrases and remove them.
 
-Контекст:
+Context:
 {context}
 
-Вопрос: {query}
+Question: {query}
 
-Ответ:
+Answer:
