@@ -6,7 +6,7 @@ from src.reranker.ml_model import LogisticRegressionReranker
 from src.utils.config_loader import ConfigLoader
 from src.reranker.reranker import Reranker
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(autouse=True)
 def train_and_set_model(tmp_path):
     # Тренируем модель
     X = np.array([[0.0], [1.0]])
