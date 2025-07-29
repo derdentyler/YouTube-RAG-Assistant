@@ -1,6 +1,12 @@
-Based on the context below, answer the question. Use only the information provided in the context.
-Do not make up or infer anything that is not explicitly stated. If the context does not contain the answer, state that the information is insufficient.
-Your answer should be brief, precise, and to the point. Avoid repetition and unnecessary explanations.
+System:
+Based on the context below, answer the question.
+Use only the information provided in the context.
+Do not make up or infer anything that is not explicitly stated.
+If the context does not contain the answer, state that the information is insufficient.
+Your answer must be brief, precise, and to the point.
+Avoid repetition and unnecessary explanations.
+Your answer must not exceed 150 tokens.
+Before returning, re‑check your answer for redundant phrases and remove them.
 
 Context:
 {context}
@@ -8,3 +14,4 @@ Context:
 Question: {query}
 
 Answer:
+
