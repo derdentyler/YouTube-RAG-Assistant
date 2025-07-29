@@ -14,7 +14,7 @@ services:
     # Монтируем большую модель и конфиг вне образа
     volumes:
       - ./src:/app/src
-      - ./models:/app/models
+      - ./models/llm:/app/models/llm:ro
       - ./config:/app/config
       - ./downloads/subtitles:/app/downloads/subtitles
 

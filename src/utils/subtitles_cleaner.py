@@ -1,25 +1,33 @@
 import re
 from typing import List, Dict, Union
 
-
-def clean_subtitles(subtitles: List[Dict[str, Union[str, float]]]) -> List[Dict[str, Union[str, float]]]:
+def clean_subtitles(
+    subtitles: List[Dict[str, Union[str, float]]]
+) -> List[Dict[str, Union[str, float]]]:
     """
-    Очищает текст субтитров: убирает лишние пробелы, специальные символы и корректирует форматирование.
-
-    :param subtitles: Список словарей с ключами 'text', 'start' и 'duration'.
-    :return: Очищенный список субтитров.
+    Очищает текст субтитров: убирает HTML-теги, скобки, лишние пробелы.
     """
-    cleaned_subtitles = []
-
+    cleaned = []
     for entry in subtitles:
-        cleaned_text = re.sub(r"\s+", " ", entry["text"]).strip()  # Убираем лишние пробелы
-        cleaned_text = re.sub(r"\[.*?]|\(.*?\)", "", cleaned_text)  # Убираем текст в скобках (например, [музыка])
+        txt = entry["text"]
 
-        if cleaned_text:  # Пропускаем пустые строки
-            cleaned_subtitles.append({
-                "text": cleaned_text,
+        # Удаляем HTML-теги (например, <c>, <00:00:01.140> и т.д.)
+        txt = re.sub(r"<[^>]+>", "", txt)
+
+        # Удаляем текст в скобках
+        txt = re.sub(r"\[.*?]|\(.*?\)", "", txt)
+
+        # Удаляем таймкоды типа <00:02:44.340>
+        txt = re.sub(r"<\d{2}:\d{2}:\d{2}\.\d{3}>", "", txt)
+
+        # Сводим пробелы
+        txt = re.sub(r"\s+", " ", txt).strip()
+
+        if txt:
+            cleaned.append({
+                "text": txt,
                 "start": entry["start"],
                 "duration": entry["duration"]
             })
 
-    return cleaned_subtitles
+    return cleaned

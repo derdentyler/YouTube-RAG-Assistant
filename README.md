@@ -51,9 +51,9 @@ retriever:
   top_k: 5
   similarity_metric: "cosine"
 
-# Chunk token size and overlap
-chunk_size_tokens: 200
-chunk_overlap_tokens: 50
+# Bubtitle block duration and overlap
+subtitle_block_duration: 60
+subtitle_block_overlap: 10
 ```
 
 ### Step 5: Run the Application
@@ -112,6 +112,48 @@ This stops and removes all containers and networks, but preserves volumes (e.g. 
 docker compose down
 ```
 
+## Reranking Module
+
+**What is it?**  
+A post-retrieval step that reorders candidate transcript fragments using a trained ML model (Logistic Regression) to improve relevance.
+
+**How it works**  
+1. **Retriever** returns top-K fragments (by cosine similarity).  
+2. **Reranker** loads `logreg_reranker.pkl` and computes feature vectors (cosine, token overlap, stopword ratio, length difference, position, TF‑IDF similarity).  
+3. The model scores each fragment and sorts them in descending order.
+
+**Use reranker**
+
+Example configuration (`config.yaml`):
+
+```yaml
+reranker:
+  use_reranker: true
+  top_k: 3
+  model_path: "models/reranker/logreg_reranker.pkl"
+```
+
+**Retraining the model**  
+
+1. Prepare data/reranker/train_data.json with entries:
+```yaml
+{
+  "query": "sample question?",
+  "fragments": [
+    {"text": "candidate 1", "label": 1},
+    {"text": "candidate 2", "label": 0},
+    …
+  ]
+}
+```
+
+2. Run trainer
+```bash
+python src/reranker/trainer.py \
+  --train-path data/reranker/train_data.json \
+  --model-out models/reranker/logreg_reranker.pkl
+```
+
 
 ## Technologies
 
@@ -158,4 +200,5 @@ In the future, I plan to add the following features:
 
 ## Contact
 
-For any questions or suggestions, feel free to reach out: 📧 alexander.polybinsky@gmail.com
+For any questions or suggestions, feel free to reach out: 📧 [alexander.polybinsky@gmail.com
+]()

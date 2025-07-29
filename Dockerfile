@@ -34,11 +34,14 @@ RUN poetry install --no-interaction --no-ansi --only main
 # 7. Ставим llama-cpp-python вручную через pip
 RUN pip install --no-cache-dir llama-cpp-python
 
-# 8. Копируем весь код проекта
+# 8. Копируем reranker
+COPY models/reranker/logreg_reranker.pkl /app/models/reranker/logreg_reranker.pkl
+
+# 9. Копируем весь код проекта
 COPY . /app
 
-# 9. Задаём PYTHONPATH (если нужно)
+# 10. Задаём PYTHONPATH
 ENV PYTHONPATH=/app/src
 
-# 10. Точка входа
+# 11. Точка входа
 CMD ["poetry", "run", "start-api"]
