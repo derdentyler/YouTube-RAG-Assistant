@@ -557,14 +557,14 @@ files = [
 six = "*"
 
 [[package]]
-name = "llama-cpp-python"
-version = "0.2.90"
+name = "llama_cpp_python"
+version = "0.2.89"
 description = "Python bindings for the llama.cpp library"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "llama_cpp_python-0.2.90.tar.gz", hash = "sha256:419b041c62dbdb9f7e67883a6ef2f247d583d08417058776be0bff05b4ec9e3d"},
+    {file = "llama_cpp_python-0.2.89-cp312-cp312-win_amd64.whl", hash = "sha256:7f181d91e03918fe044e52575c223d894c4a745d4ab9cf9344dbf8d274fa5008"},
 ]
 
 [package.dependencies]
@@ -578,6 +578,10 @@ all = ["llama_cpp_python[dev,server,test]"]
 dev = ["black (>=23.3.0)", "httpx (>=0.24.1)", "mkdocs (>=1.4.3)", "mkdocs-material (>=9.1.18)", "mkdocstrings[python] (>=0.22.0)", "pytest (>=7.4.0)", "twine (>=4.0.2)"]
 server = ["PyYAML (>=5.1)", "fastapi (>=0.100.0)", "pydantic-settings (>=2.0.1)", "sse-starlette (>=1.6.1)", "starlette-context (>=0.3.6,<0.4)", "uvicorn (>=0.22.0)"]
 test = ["fastapi (>=0.100.0)", "httpx (>=0.24.1)", "pydantic-settings (>=2.0.1)", "pytest (>=7.4.0)", "scipy (>=1.10)", "sse-starlette (>=1.6.1)", "starlette-context (>=0.3.6,<0.4)"]
+
+[package.source]
+type = "url"
+url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.2.89/llama_cpp_python-0.2.89-cp312-cp312-win_amd64.whl"
 
 [[package]]
 name = "markupsafe"
@@ -2386,4 +2390,4 @@ test = ["pytest (>=8.1,<9.0)", "pytest-rerunfailures (>=14.0,<15.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "679da42376c74463aa66bb48943174d3d02e06402b66b29080c99742f5c515f4"
+content-hash = "f0b1be670ea5fe6eeef09a37cdde62162559d41c2177ae728f86170d108f59a9"

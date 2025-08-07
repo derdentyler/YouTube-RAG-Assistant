@@ -36,10 +36,12 @@ Example configuration (`config.yaml`):
 ```yaml
 language: "ru"
 
+use_langchain: false
+
 models:
   ru:
     backend: "llama.cpp"
-    model_path: "./models/saiga_llama3_8b-q4_k_m.gguf"
+    model_path: "./models/llm/saiga_llama3_8b-q4_k_m.gguf"
     n_ctx: 8192
   en:
     backend: "transformers"
@@ -48,10 +50,15 @@ models:
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 retriever:
-  top_k: 5
+  top_k: 6
   similarity_metric: "cosine"
 
-# Bubtitle block duration and overlap
+reranker:
+  use_reranker: true
+  top_k: 3
+  model_path: "models/reranker/logreg_reranker.pkl"
+
+# Subtitle fragment time in seconds and overlap
 subtitle_block_duration: 60
 subtitle_block_overlap: 10
 ```
@@ -158,8 +165,9 @@ python src/reranker/trainer.py \
 ## Technologies
 
 - **FastAPI** - for creating the API
-- **PostgreSQL** with **pgvector** extension - for storing vector data
 - **Uvicorn** - ASGI server
+- **PostgreSQL** with **pgvector** extension - for storing vector data
+- **LangChain** - for pipline customization
 - **Docker** - for containerizing the project
 - **Poetry** - for dependency management
 
@@ -193,9 +201,10 @@ This project is licensed under the MIT License.
 
 In the future, I plan to add the following features:
 
-- **Refactoring**: Add type annotations. Add Config pydantic-class.
+- **Refactoring**: LangSmith integration. Add Config pydantic-class.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
 
 ## Contact
 
-For any questions or suggestions, feel free to reach out: 📧 alexander.polybinsky@gmail.com
+For any questions or suggestions, feel free to reach out: 📧 [alexander.polybinsky@gmail.com
+]()

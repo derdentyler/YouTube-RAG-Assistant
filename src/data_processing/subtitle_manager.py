@@ -1,10 +1,10 @@
 from src.utils.db_connector import DBConnector
-from sentence_transformers import SentenceTransformer
 from src.utils.config_loader import ConfigLoader
 from typing import Optional, List, Dict, Union
+from src.core.abstractions.embeddings import Embedder
 
 class SubtitleManager:
-    def __init__(self, db_pool: DBConnector):
+    def __init__(self, db_pool: DBConnector, embedding_model: Embedder):
         """
         Инициализация менеджера субтитров с подключением к базе данных через пул соединений.
         """
@@ -12,7 +12,8 @@ class SubtitleManager:
         # Загружаем конфигурацию
         self.config = ConfigLoader.get_config()
         # Инициализация модели для получения эмбеддингов
-        self.embedding_model = SentenceTransformer(self.config["embedding_model"])
+        self.embedding_model = embedding_model
+        # self.embedding_model = SentenceTransformer(self.config["embedding_model"])
 
     def add_subtitles(self, video_id: str, subtitles: List[Dict[str, Union[str, float]]]):
         """Добавление субтитров в базу данных."""
