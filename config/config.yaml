@@ -1,9 +1,11 @@
 language: "ru"
 
+use_langchain: false
+
 models:
   ru:
     backend: "llama.cpp"
-    model_path: "./models/saiga_llama3_8b-q4_k_m.gguf"
+    model_path: "./models/llm/saiga_llama3_8b-q4_k_m.gguf"
     n_ctx: 8192
   en:
     backend: "transformers"
@@ -20,6 +22,6 @@ reranker:
   top_k: 3
   model_path: "models/reranker/logreg_reranker.pkl"
 
-# Размер одного фрагмента субтитров по времени в секундах и перекрытия
+# Subtitle fragment time in seconds and overlap
 subtitle_block_duration: 60
 subtitle_block_overlap: 10

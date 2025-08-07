@@ -1,140 +1,146 @@
 import time
-from typing import List, Tuple
-
 from sentence_transformers import SentenceTransformer
-
+from src.core.abstractions.embeddings import Embedder
 from src.utils.db_connector import DBConnector
 from src.utils.logger_loader import LoggerLoader
 from src.data_processing.subtitle_extractor import SubtitleExtractor
 from src.data_processing.subtitle_manager import SubtitleManager
-from src.search.retriever import Retriever
 from src.utils.config_loader import ConfigLoader
 from src.utils.prompt_loader import PromptLoader
 from src.answer_generator.model_factory import model_factory
 from src.reranker.reranker import Reranker
+from src.core.adapters.db_vector_store import DBVectorStore
 
 
 class RAGModel:
+    """
+    Retrieval-Augmented Generation model.
+    Handles subtitle extraction, retrieval, optional reranking, and answer generation.
+    """
+
     def __init__(self, db_connector: DBConnector):
-        """
-        Инициализация RAGModel с переданным DBConnector и пулом соединений.
-        Используется для извлечения субтитров, поиска, (опционального) реранкинга и генерации ответа.
-        """
-        self.db_connector = db_connector  # Пул соединений
-        self.subtitle_extractor = SubtitleExtractor()
-        self.subtitle_manager = SubtitleManager(db_pool=self.db_connector)
-        self.retriever = Retriever(db_pool=self.db_connector)
+        self.db = db_connector
         self.logger = LoggerLoader.get_logger()
 
-        # Конфиг и LLM
-        config = ConfigLoader.get_config()
-        self.llm_model = model_factory(config)
-        self.language = config.get("language", "ru")
-        self.prompt_template = PromptLoader().load(self.language)
+        # Configuration
+        self.config = ConfigLoader.get_config()
+        self.language = self.config.get("language", "ru")
+        self.use_langchain = self.config.get("use_langchain", False)
+        self.use_reranker = self.config.get("reranker", {}).get("use_reranker", False)
 
-        # Параметры reranking'а из конфига
-        self.use_reranker: bool = config.get("reranker", {}).get("use_reranker", False)
-        self.retriever_top_k: int = config.get("retriever", {}).get("top_k", 5)
-        self.reranker_top_k: int = config.get("reranker", {}).get("top_k", 5)
+        # Embedding model
+        embed_name = self.config.get("embedding_model")
+        self.embedding_model: Embedder = SentenceTransformer(embed_name)
 
-        if self.use_reranker:
-            # Загружаем модель эмбеддингов для reranker
-            embed_model_name = config.get("embedding_model")
-            self.embed_model = SentenceTransformer(embed_model_name)
-            # Инициализируем reranker
-            reranker_cfg = config.get("reranker", {})
-            reranker_path = reranker_cfg.get("model_path")
-            self.reranker = Reranker(reranker_path)
+        # Components
+        self.subtitle_extractor = SubtitleExtractor()
+        self.subtitle_manager = SubtitleManager(db_pool=self.db, embedding_model=self.embedding_model)
+
+        if self.use_langchain:
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            self.embed_model = HuggingFaceEmbeddings(model_name=embed_name)
+            from src.integrations.langchain_integration import LangChainRAG
+            self.chain = LangChainRAG(self.db, self.config)
+        else:
+            # LLM and prompt
+            self.llm = model_factory(self.config)
+            self.prompt_template = PromptLoader().load(self.language)
+
+            # Embedding model for retrieval and reranking
+            self.vectorstore = DBVectorStore(
+                db_connector=self.db,
+                embedding_model=self.embedding_model
+            )
+
+            # Reranker setup
+            self.retriever_top_k = self.config.get("retriever", {}).get("top_k", 5)
+            if self.use_reranker:
+                rer_cfg = self.config.get("reranker", {})
+                self.reranker = Reranker(rer_cfg.get("model_path"))
+                self.reranker_top_k = rer_cfg.get("top_k", 5)
 
         self.logger.info(
-            f"RAGModel initialized (use_reranker={self.use_reranker}"
+            f"Initialized RAGModel | langchain={self.use_langchain} | reranker={self.use_reranker}"
         )
+
+    def _ensure_subtitles(self, video_id: str) -> None:
+        """
+        Ensure subtitles for given video_id exist in DB; extract and store if missing.
+        Raises ValueError if subtitles cannot be obtained.
+        """
+        if not self.db.fetch_subtitles(video_id):
+            self.logger.info(f"Subtitles missing for {video_id}, extracting...")
+            extracted = self.subtitle_extractor.get_subtitles(video_id)
+            if not extracted:
+                raise ValueError("Subtitles not found")
+            self.subtitle_manager.add_subtitles(video_id, extracted)
+            self.logger.info(f"Subtitles extracted and stored for {video_id}")
 
     def process_query(self, video_url: str, query: str) -> str:
         """
-        Обрабатывает запрос, проверяя наличие субтитров в базе и возвращая контекст для генерации ответа.
+        Handle full RAG pipeline: extract subtitles, retrieve, rerank, generate.
         """
         try:
-            # 1. Extract video ID
+            # Step 1: extract video ID
             video_id = self.subtitle_extractor.extract_video_id(video_url)
             if not video_id:
-                self.logger.error(f"Cannot extract video_id from URL: {video_url}")
+                self.logger.error(f"Invalid video URL: {video_url}")
                 return "Ошибка: некорректный URL видео."
 
-            # 2. Ensure subtitles in DB
-            subtitles = self.db_connector.fetch_subtitles(video_id)
-            if not subtitles:
-                self.logger.info(f"Субтитры для {video_id} не найдены, извлекаем...")
-                subs = self.subtitle_extractor.get_subtitles(video_id)
-                if not subs:
-                    self.logger.error(f"Не удалось получить субтитры для {video_id}")
-                    return "Ошибка: субтитры не найдены."
-                self.subtitle_manager.add_subtitles(video_id, subs)
-                subtitles = subs
+            # Step 2: ensure subtitles
+            try:
+                self._ensure_subtitles(video_id)
+            except ValueError:
+                return "Ошибка: субтитры не найдены."
 
-            # 3. Retrieve candidates
-            results: List[Tuple[str, float]] = self.retriever.retrieve(query)
-            if not results:
-                self.logger.warning(f"No subtitles found for query '{query}'")
+            # Step 3: choose pipeline
+            if self.use_langchain:
+                return self.chain.invoke(query)
+
+            # Step 4: retrieve candidates
+            docs = self.vectorstore.search(query, k=self.retriever_top_k)
+            self.logger.info(f"Retrieved {len(docs)} candidates")
+            if not docs:
                 return "По запросу не найдено похожих субтитров."
+            texts = [d["page_content"] for d in docs]
 
-            # 4. Rerank or baseline top_k
+            # Step 5: optional rerank
             if self.use_reranker:
-                # распакуем тексты из результата retriever
-                texts, _ = zip(*results)
-
-                # 1) Получаем эмбеддинг запроса как np.ndarray
-                q_emb = self.embed_model.encode(query, convert_to_tensor=False)
-                # на всякий случай приводим Tensor -> numpy
-                if hasattr(q_emb, "cpu"):
+                q_emb = self.embedding_model.encode(query, convert_to_tensor=False)
+                if hasattr(q_emb, 'cpu'):
                     q_emb = q_emb.cpu().numpy()
-
-                # 2) Получаем батч эмбеддингов документов в np.ndarray shape (N, D)
-                d_embs_np = self.embed_model.encode(list(texts), convert_to_tensor=False)
-                if hasattr(d_embs_np, "cpu"):
-                    d_embs_np = d_embs_np.cpu().numpy()
-
-                # 3) Конвертируем в список одномерных векторов
-                doc_embeddings = [d_embs_np[i] for i in range(d_embs_np.shape[0])]
-
-                # 4) Токенизация
-                q_tokens = query.lower().split()
-                d_tokens_list = [t.lower().split() for t in texts]
-
-                # 5) Реранкинг
+                d_embs = self.embedding_model.encode(texts, convert_to_tensor=False)
+                if hasattr(d_embs, 'cpu'):
+                    d_embs = d_embs.cpu().numpy()
                 reranked = self.reranker.rerank(
                     q_emb,
-                    doc_embeddings,
-                    q_tokens,
-                    d_tokens_list,
-                    list(texts)
+                    list(d_embs),
+                    query.lower().split(),
+                    [t.lower().split() for t in texts],
+                    texts
                 )
                 selected = [t for t, _ in reranked[: self.reranker_top_k]]
             else:
-                selected = [t for t, _ in results[: self.retriever_top_k]]
+                selected = texts[: self.retriever_top_k]
 
+            snippets_str = "\n".join(f"\t{i}.\t{snippet}" for i, snippet in enumerate(selected, 1))
+            self.logger.info(f"Selected {len(selected)} snippets for context:\n{snippets_str}")
+
+            # Step 6: generate answer
             context = "\n".join(selected)
-
-            # 5. Generate answer
             prompt = self.prompt_template.format(query=query, context=context)
-            self.logger.info(f"Prompt: {prompt[:200]}...")
-            return self._generate_answer(query, context)
+            return self._generate_answer(prompt)
 
         except Exception as e:
-            self.logger.error(f"Error in process_query: {e}")
+            self.logger.error(f"process_query error: {e}")
             return "Ошибка: не удалось обработать запрос."
 
-    def _generate_answer(self, query: str, context: str) -> str:
+    def _generate_answer(self, prompt: str) -> str:
         """
-        Генерирует ответ с использованием LLM на основе шаблона промпта.
+        Generate answer using LLM.
         """
         start = time.time()
-        try:
-            prompt = self.prompt_template.format(query=query, context=context)
-            self.logger.info(f"Сформированный промпт: {prompt[:500]}...")
-            answer = self.llm_model.generate(prompt, max_length=1024)
-            self.logger.info(f"Ответ сгенерирован за {time.time() - start:.2f} сек.")
-            return answer.strip()
-        except Exception as error:
-            self.logger.error(f"Error in _generate_answer: {error}")
-            return "Ошибка: не удалось сгенерировать ответ."
+        answer = self.llm.generate(prompt, max_length=1024)
+        elapsed = time.time() - start
+        self.logger.info(f"Answer generated in {elapsed:.2f}s")
+        return answer.strip()

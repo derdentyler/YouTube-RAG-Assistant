@@ -1,59 +1,70 @@
 import pytest
+from unittest.mock import MagicMock
+import numpy as np
 
 from src.data_processing.subtitle_manager import SubtitleManager
-from src.utils.config_loader import ConfigLoader
 
-# Заглушка для модели эмбеддингов
-class DummyEmbedding(list):
-    def tolist(self):
-        return list(self)
 
-class DummyModel:
-    def encode(self, text):
-        # Возвращает DummyEmbedding с tolist()
-        return DummyEmbedding([0.1, 0.2, 0.3])
+@pytest.fixture
+def mock_db():
+    return MagicMock()
 
-# Заглушка для DBConnector
-class DummyDB:
-    def __init__(self):
-        self.insert_calls = []
 
-    def insert_subtitle(self, video_id, start_time, end_time, text, embedding):
-        self.insert_calls.append((video_id, start_time, end_time, text, embedding))
+@pytest.fixture
+def mock_embedder():
+    mock = MagicMock()
+    # Возвращаем numpy array, чтобы поддерживался .tolist()
+    mock.encode.return_value = np.array([0.1, 0.2, 0.3])
+    return mock
 
-@pytest.fixture(autouse=True)
-def patch_config_and_model(monkeypatch):
-    # Заглушаем конфиг, чтобы вернулся нужный ключ
-    monkeypatch.setattr(
-        ConfigLoader,
-        "get_config",
-        lambda: {"embedding_model": "dummy-model-path"}
-    )
-    # Заглушаем SentenceTransformer, чтобы он возвращал DummyModel
-    monkeypatch.setattr(
-        "src.data_processing.subtitle_manager.SentenceTransformer",
-        lambda model_name: DummyModel()
-    )
 
-def test_get_embedding_returns_list_of_floats():
-    sm = SubtitleManager(db_pool=DummyDB())
-    emb = sm.get_embedding("test text")
-    assert isinstance(emb, list)
-    assert emb == [0.1, 0.2, 0.3]
-    assert all(isinstance(x, float) for x in emb)
+@pytest.fixture
+def subtitle_manager(mock_db, mock_embedder):
+    return SubtitleManager(db_pool=mock_db, embedding_model=mock_embedder)
 
-def test_add_subtitles_calls_db_insert_with_embedding():
-    db = DummyDB()
-    sm = SubtitleManager(db_pool=db)
-    subtitles = [{"text": "hello", "start": 1.0, "duration": 2.0}]
 
-    sm.add_subtitles(video_id="vid", subtitles=subtitles)
+def test_add_subtitles(subtitle_manager, mock_db, mock_embedder):
+    subtitles = [
+        {"text": "Hello world", "start": 0.0, "duration": 2.5},
+        {"text": "Another line", "start": 3.0, "duration": 1.5},
+    ]
 
-    # Проверяем вызов insert_subtitle
-    assert len(db.insert_calls) == 1
-    vid, start, end, text, embedding = db.insert_calls[0]
-    assert vid == "vid"
-    assert start == pytest.approx(1.0)
-    assert end == pytest.approx(3.0)
-    assert text == "hello"
-    assert embedding == [0.1, 0.2, 0.3]
+    subtitle_manager.add_subtitles("video123", subtitles)
+
+    # Проверка, что encode вызывался на каждый текст
+    assert mock_embedder.encode.call_count == 2
+
+    # Проверка, что insert_subtitle вызывался с правильными аргументами
+    calls = mock_db.insert_subtitle.call_args_list
+    assert len(calls) == 2
+
+    expected_args_1 = ("video123", 0.0, 2.5, "Hello world", [0.1, 0.2, 0.3])
+    expected_args_2 = ("video123", 3.0, 4.5, "Another line", [0.1, 0.2, 0.3])
+
+    assert calls[0].args == expected_args_1
+    assert calls[1].args == expected_args_2
+
+
+def test_get_subtitles(subtitle_manager, mock_db):
+    mock_db.fetch_subtitles.return_value = [{"text": "hi"}]
+
+    result = subtitle_manager.get_subtitles("vid456")
+
+    mock_db.fetch_subtitles.assert_called_once_with("vid456")
+    assert result == [{"text": "hi"}]
+
+
+def test_clear_subtitles(subtitle_manager, mock_db):
+    subtitle_manager.clear_subtitles()
+    mock_db.clear_table.assert_called_once()
+
+
+def test_close(subtitle_manager, mock_db):
+    subtitle_manager.close()
+    mock_db.close.assert_called_once()
+
+
+def test_get_embedding(subtitle_manager, mock_embedder):
+    result = subtitle_manager.get_embedding("test string")
+    mock_embedder.encode.assert_called_once_with("test string")
+    assert result == [0.1, 0.2, 0.3]

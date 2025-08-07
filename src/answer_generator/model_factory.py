@@ -4,14 +4,7 @@ from src.utils.logger_loader import LoggerLoader
 from transformers import pipeline
 from llama_cpp import Llama
 import gc
-
-
-class BaseLLM(ABC):
-    """Абстрактный класс для LLM"""
-
-    @abstractmethod
-    def generate(self, prompt: str, max_length: int = 200) -> str:
-        pass
+from src.core.abstractions.llm import BaseLLM
 
 
 class TransformersLLM(BaseLLM):
@@ -20,10 +13,12 @@ class TransformersLLM(BaseLLM):
     def __init__(self, model_name: str):
         self.logger = LoggerLoader.get_logger()
         try:
+            # поддержка stream=True для потоковой генерации
             self.pipeline = pipeline(
                 "text-generation",
                 model=model_name,
-                device_map="auto"
+                device_map="auto",
+                return_full_text=False
             )
             self.logger.info(f"Loaded Transformers model: {model_name}")
         except Exception as e:
@@ -41,6 +36,23 @@ class TransformersLLM(BaseLLM):
         except Exception as e:
             self.logger.error(f"Generation error: {e}")
             return ""
+
+    def stream_generate(self, prompt: str, max_length: int = 200):
+        """Потоковая генерация текстовых фрагментов"""
+        try:
+            # Используем параметр stream=True, если поддерживается
+            for out in self.pipeline(
+                prompt,
+                max_length=max_length,
+                num_return_sequences=1,
+                stream=True
+            ):
+                # out может быть словарём с частичным текстом
+                text = out.get('generated_text') or out.get('text', '')
+                yield text
+        except Exception as e:
+            self.logger.error(f"Stream generation error: {e}")
+            return
 
 
 class LlamaCppLLM(BaseLLM):
@@ -76,6 +88,24 @@ class LlamaCppLLM(BaseLLM):
         except Exception as e:
             self.logger.error(f"Generation error: {e}")
             return ""
+
+    def stream_generate(self, prompt: str, max_length: int = 200):
+        """Потоковая генерация через llama.cpp stream=True"""
+        try:
+            for out in self.llm(
+                prompt,
+                max_tokens=max_length,
+                stream=True
+            ):
+                # out — словарь с токеном
+                if isinstance(out, dict) and 'choices' in out:
+                    chunk = out['choices'][0].get('text', '')
+                else:
+                    chunk = str(out)
+                yield chunk
+        except Exception as e:
+            self.logger.error(f"Stream generation error: {e}")
+            return
 
 
 def model_factory(config: dict) -> BaseLLM:
