@@ -3,7 +3,7 @@
 
 This project is an API for handling requests using Retrieval-Augmented Generation (RAG). The API accepts video URLs and questions, generating answers using the RAG model and PostgreSQL database. The project uses FastAPI for request handling, PostgreSQL with the pgvector extension for storing vector data, and Docker for containerization.
 
-## Installation and Setup
+## Installation and Setup (without Docker)
 
 ### Step 1: Install Poetry
 
@@ -21,13 +21,40 @@ Once Poetry is installed, navigate to the project root directory and run the fol
 poetry install
 ```
 
-### Step 3: Download the Model
+### Step 3: Install Llama-cpp-python
+
+Since llama-cpp-python contains OS-specific native binaries, it is recommended to install it manually using pip after running poetry install. This ensures that pip selects the correct precompiled wheel for your operating system.
+
+```bash
+pip install llama-cpp-python==0.2.89
+```
+
+### Additional notes for users
+
+After running `poetry install`, if you are using a virtual environment (venv), **make sure to activate it first** before running the `pip install` command.
+
+If you use Poetry's default virtual environment (created automatically), activate it via:
+
+- **On Linux/macOS:**
+
+  ```bash
+  source $(poetry env info --path)/bin/activate
+  ```
+
+- **On Windows (PowerShell)**
+
+  ```bash
+  .\$(poetry env info --path)\Scripts\Activate.ps1
+  ```
+
+
+### Step 4: Download the Model
 
 Before running the API, you need to download the model in **.gguf** format and save it in the `models` folder. Use the provided link to download the model and save the file in the `models/` directory of your project.
 
 For example, load [saiga_llama3_8b-q4_k_m.gguf](https://huggingface.co/itlwas/saiga_llama3_8b-Q4_K_M-GGUF/resolve/main/saiga_llama3_8b-q4_k_m.gguf?download=true)
 
-### Step 4: Configure the Settings
+### Step 5: Configure the Settings
 
 The project uses a configuration file where important parameters such as the model path, model settings, and retriever settings are specified. Update the config according to your preferences.
 
@@ -63,7 +90,7 @@ subtitle_block_duration: 60
 subtitle_block_overlap: 10
 ```
 
-### Step 5: Run the Application
+### Step 6: Run the Application
 
 To start the API, run the following command:
 
@@ -73,12 +100,43 @@ poetry run start-api
 
 This command will launch the FastAPI application using Uvicorn, and you can access the API at `http://localhost:8000`.
 
-### Step 6: Testing the API
+### Step 7: Testing the API
 
 The API supports Swagger UI for testing all available endpoints. To access Swagger UI, open the following link in your browser:
 
 ```
 http://localhost:8000/docs
+```
+
+## Installation and Setup (Docker)
+
+We provide a Dockerized version of the API for easy local development and production deployment.
+
+### Building the Docker Image
+
+Build the Docker image (tagged as video-rag-api:latest)
+
+```bash
+docker compose build
+```
+
+### Running in Development Mode
+
+Start containers, mount local code for live reload (Uvicorn --reload)
+
+```bash
+docker compose up
+```
+### Running with Rebuild
+Whenever you update dependencies in pyproject.toml or modify the Dockerfile:
+```bash
+docker compose up --build -d
+```
+
+### Stopping and Cleaning Up
+This stops and removes all containers and networks, but preserves volumes (e.g. downloaded subtitles or models)
+```bash
+docker compose down
 ```
 
 ### Unit tests
@@ -87,36 +145,6 @@ To use unit tests:
 
 ```bash
 poetry run pytest
-```
-
-## Docker Setup and Usage
-
-We provide a Dockerized version of the API for easy local development and production deployment.
-
-### Building the Docker Image
-
-```bash
-# Build the Docker image (tagged as video-rag-api:latest)
-docker compose build
-```
-
-### Running in Development Mode
-Code changes in ./src will be detected automatically by Uvicorn’s --reload, no need to rebuild
-```bash
-# Start containers, mount local code for live reload (Uvicorn --reload)
-docker compose up
-```
-### Running with Rebuild
-Whenever you update dependencies in pyproject.toml or modify the Dockerfile:
-```bash
-# Rebuild the image and start fresh containers
-docker compose up --build -d
-```
-
-### Stopping and Cleaning Up
-This stops and removes all containers and networks, but preserves volumes (e.g. downloaded subtitles or models)
-```bash
-docker compose down
 ```
 
 ## Reranking Module

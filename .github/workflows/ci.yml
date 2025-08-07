@@ -40,8 +40,11 @@ jobs:
       - name: Configure Poetry (no venv)
         run: poetry config virtualenvs.create false
 
-      - name: Install dependencies (main + dev)
+      - name: Install dependencies (main + dev except llama-cpp-python)
         run: poetry install --no-interaction --with dev
+
+      - name: Install llama-cpp-python manually
+        run: pip install llama-cpp-python==0.2.89
 
       - name: Run tests
         run: poetry run pytest --maxfail=1 --disable-warnings -q
