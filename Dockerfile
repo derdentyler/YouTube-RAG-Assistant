@@ -27,12 +27,11 @@ WORKDIR /app
 # 5. Копируем только pyproject.toml и poetry.lock
 COPY pyproject.toml poetry.lock* /app/
 
-# 6. Устанавливаем все зависимости **кроме** llama-cpp-python
-#    (по-прежнему через Poetry)
-RUN poetry install --no-interaction --no-ansi --only main
+# 6. Устанавливаем только основные зависимости
+RUN poetry install --no-interaction --only main
 
-# 7. Ставим llama-cpp-python вручную через pip
-RUN pip install --no-cache-dir llama-cpp-python
+# 7. Устанавливаем llama-cpp-python вручную (опционально, только если нужен в образе)
+RUN pip install --no-cache-dir llama-cpp-python==0.2.89
 
 # 8. Копируем reranker
 COPY models/reranker/logreg_reranker.pkl /app/models/reranker/logreg_reranker.pkl

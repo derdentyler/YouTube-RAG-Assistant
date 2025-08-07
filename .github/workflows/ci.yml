@@ -10,7 +10,6 @@ jobs:
   test-and-build:
     runs-on: ubuntu-latest
 
-    # Подставляем точно такие же имена переменных, как в вашем .env
     env:
       PYTHONPATH:      ${{ secrets.PYTHONPATH }}
       LOG_FILE:        ${{ secrets.LOG_FILE }}
@@ -41,8 +40,8 @@ jobs:
       - name: Configure Poetry (no venv)
         run: poetry config virtualenvs.create false
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --only main
+      - name: Install dependencies (main + dev)
+        run: poetry install --no-interaction --with dev
 
       - name: Run tests
         run: poetry run pytest --maxfail=1 --disable-warnings -q
