@@ -1,6 +1,5 @@
 import os
 from typing import List, Tuple, Optional
-import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extensions import connection as PGConnection
 from dotenv import load_dotenv
@@ -97,6 +96,11 @@ class DBConnector:
                 else:
                     logger.info("Таблица 'subtitles' уже существует.")
 
+            #Проверка существования индексов
+            self.release_connection(conn)
+            conn = None
+            self.ensure_indexes()
+
         except Exception as error:
             logger.error(f"Ошибка при инициализации БД: {error}")
             raise
@@ -104,6 +108,28 @@ class DBConnector:
         finally:
             if conn:
                 self.release_connection(conn)
+
+    def ensure_indexes(self) -> None:
+        """Создать индекс на video_id и IVFFlat-индекс на embedding, если их нет."""
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cur:
+                # B-Tree на video_id
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_subtitles_video_id
+                      ON subtitles (video_id);
+                """)
+                # IVFFlat-индекс на векторные эмбеддинги
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_subtitles_embedding
+                      ON subtitles
+                      USING ivfflat (embedding vector_cosine_ops)
+                      WITH (lists = 100);
+                """)
+            conn.commit()
+            logger.info("Индексы subtitles созданы или уже существуют.")
+        finally:
+            self.release_connection(conn)
 
     def ensure_pgvector_extension(self) -> None:
         """Установить pgvector, если он ещё не установлен."""
@@ -171,18 +197,26 @@ class DBConnector:
                 self.release_connection(conn)
 
     def search_similar_embeddings(self, embedding: List[float], top_k: int = 5) -> List[Tuple[str, float]]:
-        """Поиск похожих субтитров по embedding."""
+        """
+        Поиск похожих субтитров по embedding.
+        """
         conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT text, 1 - (embedding <#> %s) AS similarity
-                    FROM subtitles
-                    ORDER BY similarity DESC
-                    LIMIT %s
-                """, (embedding, top_k))
-
+                # собираем строку вида '[0.1,0.2,0.3]'
+                vector_text = "[" + ",".join(map(str, embedding)) + "]"
+                # передаем vector_text как параметр, а в SQL делаем ::vector
+                cursor.execute(
+                    """
+                    SELECT text,
+                           1 - (embedding <#> %s::vector) AS similarity
+                      FROM subtitles
+                     ORDER BY similarity DESC
+                     LIMIT %s
+                    """,
+                    (vector_text, top_k),
+                )
                 return cursor.fetchall()
 
         except Exception as error:
