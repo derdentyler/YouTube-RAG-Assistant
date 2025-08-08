@@ -1,67 +1,78 @@
 import pytest
-
+from unittest.mock import MagicMock, patch
 from src.utils.db_connector import DBConnector
 
-# Dummy pool and connection for testing
-class DummyPool:
-    def __init__(self):
-        self.getconn_called = False
-        self.putconn_called = False
-        self.closeall_called = False
-        self._conn = object()
-
-    def getconn(self):
-        # Помечаем вызов и возвращаем фиктивное соединение
-        self.getconn_called = True
-        return self._conn
-
-    def putconn(self, conn):
-        # Помечаем вызов передачи соединения обратно
-        self.putconn_called = True
-        assert conn is self._conn
-
-    def closeall(self):
-        # Помечаем закрытие всех соединений
-        self.closeall_called = True
-
-# Тестируем методы DBConnector, избегая реального подключения к Postgres
 
 def test_get_connection_without_pool_raises():
-    """
-    Если пул не инициализирован (_pool = None), get_connection должен бросить RuntimeError
-    """
+    """Проверка ошибки при отсутствии пула соединений."""
     db = DBConnector.__new__(DBConnector)
-    # вручную сбрасываем пул
     db._pool = None
     with pytest.raises(RuntimeError):
         db.get_connection()
 
 
-def test_get_and_release_connection_calls_pool_methods(monkeypatch):
-    """
-    Проверяем, что get_connection и release_connection вызывают методы пула getconn/putconn.
-    """
+def test_get_and_release_connection_calls_pool_methods():
+    """Проверка работы с пулом соединений."""
     db = DBConnector.__new__(DBConnector)
-    pool = DummyPool()
-    db._pool = pool
+    mock_pool = MagicMock()
+    db._pool = mock_pool
 
-    # get_connection возвращает то же соединение, что и pool.getconn
     conn = db.get_connection()
-    assert pool.getconn_called, "Метод getconn должен быть вызван"
-    assert conn is pool._conn, "get_connection должен вернуть объект из pool.getconn"
+    mock_pool.getconn.assert_called_once()
 
-    # release_connection должен вернуть соединение обратно в пул
     db.release_connection(conn)
-    assert pool.putconn_called, "Метод putconn должен быть вызван"
+    mock_pool.putconn.assert_called_once_with(conn)
 
 
 def test_close_closes_pool():
-    """
-    Проверяем, что метод close() вызывает pool.closeall().
-    """
+    """Проверка закрытия пула соединений."""
     db = DBConnector.__new__(DBConnector)
-    pool = DummyPool()
-    db._pool = pool
+    mock_pool = MagicMock()
+    db._pool = mock_pool
 
     db.close()
-    assert pool.closeall_called, "close() должен вызвать pool.closeall()"
+    mock_pool.closeall.assert_called_once()
+
+
+def test_connection_released_on_exception():
+    """Гарантированный возврат соединения при ошибке."""
+    db = DBConnector.__new__(DBConnector)
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+
+    db._pool = mock_pool
+    mock_pool.getconn.return_value = mock_conn
+    mock_conn.cursor.return_value = mock_cursor
+    mock_cursor.execute.side_effect = RuntimeError("Test error")
+
+    db.drop_table()
+    mock_pool.putconn.assert_called_once_with(mock_conn)
+
+
+def test_sql_injection_protection():
+    """Проверка защиты от SQL-инъекций."""
+    db = DBConnector.__new__(DBConnector)
+    # Инициализация для работы release_connection
+    db._pool = MagicMock()
+
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+
+    # Настраиваем контекстный менеджер для курсора
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_conn.cursor.return_value.__exit__.return_value = None
+
+    with patch.object(db, 'get_connection', return_value=mock_conn):
+        # Вызываем метод с опасным вводом
+        db.insert_subtitle("hack' OR 1=1--", 0, 1, "text", [])
+
+        # Проверяем что execute был вызван
+        mock_cursor.execute.assert_called_once()
+
+        # Получаем аргументы вызова
+        args, kwargs = mock_cursor.execute.call_args
+
+        # Проверяем параметризованный запрос
+        assert "%s" in args[0]  # Должен быть параметризованный запрос
+        assert args[1] == ("hack' OR 1=1--", 0, 1, "text", [])  # Проверяем параметры

@@ -6,7 +6,7 @@ from psycopg2.extensions import connection as PGConnection
 from dotenv import load_dotenv
 from src.utils.logger_loader import LoggerLoader
 
-# Загрузка переменных окружения
+
 load_dotenv()
 logger = LoggerLoader.get_logger()
 
@@ -82,10 +82,10 @@ class DBConnector:
 
     def initialize_db(self) -> None:
         """Создание таблицы и расширения, если нужно."""
+        conn = None
         try:
             logger.info("Инициализация базы данных...")
             self.ensure_pgvector_extension()
-
             conn = self.get_connection()
             with conn.cursor() as cursor:
                 cursor.execute("SELECT to_regclass('public.subtitles');")
@@ -96,14 +96,18 @@ class DBConnector:
                     self.create_subtitles_table(conn)
                 else:
                     logger.info("Таблица 'subtitles' уже существует.")
-            self.release_connection(conn)
 
         except Exception as error:
             logger.error(f"Ошибка при инициализации БД: {error}")
             raise
 
+        finally:
+            if conn:
+                self.release_connection(conn)
+
     def ensure_pgvector_extension(self) -> None:
         """Установить pgvector, если он ещё не установлен."""
+        conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
@@ -114,9 +118,13 @@ class DBConnector:
                     logger.info("Расширение 'pgvector' установлено.")
                 else:
                     logger.info("Расширение 'pgvector' уже установлено.")
-            self.release_connection(conn)
+
         except Exception as error:
             logger.error(f"Ошибка при установке pgvector: {error}")
+
+        finally:
+            if conn:
+                self.release_connection(conn)
 
     def create_subtitles_table(self, connection: PGConnection) -> None:
         """Создать таблицу 'subtitles'."""
@@ -139,10 +147,11 @@ class DBConnector:
             connection.rollback()
 
     def insert_subtitle(
-        self, video_id: str, start_time: float, end_time: float,
-        text: str, embedding: List[float]
+            self, video_id: str, start_time: float, end_time: float,
+            text: str, embedding: List[float]
     ) -> None:
         """Добавить субтитры в таблицу."""
+        conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
@@ -151,44 +160,59 @@ class DBConnector:
                     VALUES (%s, %s, %s, %s, %s)
                 """, (video_id, start_time, end_time, text, embedding))
                 conn.commit()
+
             logger.info(f"Субтитры для {video_id} успешно добавлены.")
-            self.release_connection(conn)
+
         except Exception as error:
             logger.error(f"Ошибка при вставке субтитров: {error}")
 
+        finally:
+            if conn:
+                self.release_connection(conn)
+
     def search_similar_embeddings(self, embedding: List[float], top_k: int = 5) -> List[Tuple[str, float]]:
         """Поиск похожих субтитров по embedding."""
+        conn = None
         try:
             conn = self.get_connection()
-            embedding_str = f"'[{','.join(map(str, embedding))}]'"
             with conn.cursor() as cursor:
-                cursor.execute(f"""
-                    SELECT text, 1 - (embedding <#> {embedding_str}) AS similarity
+                cursor.execute("""
+                    SELECT text, 1 - (embedding <#> %s) AS similarity
                     FROM subtitles
                     ORDER BY similarity DESC
                     LIMIT %s
-                """, (top_k,))
-                result = cursor.fetchall()
-            self.release_connection(conn)
-            return result
+                """, (embedding, top_k))
+
+                return cursor.fetchall()
+
         except Exception as error:
             logger.error(f"Ошибка при поиске эмбеддингов: {error}")
             return []
 
+        finally:
+            if conn:
+                self.release_connection(conn)
+
     def drop_table(self) -> None:
         """Удалить таблицу 'subtitles'."""
+        conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
                 cursor.execute("DROP TABLE IF EXISTS subtitles;")
                 conn.commit()
             logger.info("Таблица 'subtitles' удалена.")
-            self.release_connection(conn)
+
         except Exception as error:
             logger.error(f"Ошибка при удалении таблицы: {error}")
 
+        finally:
+            if conn:
+                self.release_connection(conn)
+
     def fetch_subtitles(self, video_id: str) -> List[Tuple[str]]:
         """Получить субтитры по video_id."""
+        conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
@@ -199,20 +223,29 @@ class DBConnector:
 
                 cursor.execute("SELECT text FROM subtitles WHERE video_id = %s;", (video_id,))
                 subtitles = cursor.fetchall()
-            self.release_connection(conn)
             return subtitles
+
         except Exception as error:
             logger.error(f"Ошибка при извлечении субтитров: {error}")
             return []
 
+        finally:
+            if conn:
+                self.release_connection(conn)
+
     def clear_table(self) -> None:
         """Удалить все записи из таблицы."""
+        conn = None
         try:
             conn = self.get_connection()
             with conn.cursor() as cursor:
                 cursor.execute("DELETE FROM subtitles;")
                 conn.commit()
             logger.info("Таблица 'subtitles' очищена.")
-            self.release_connection(conn)
+
         except Exception as error:
             logger.error(f"Ошибка при очистке таблицы: {error}")
+
+        finally:
+            if conn:
+                self.release_connection(conn)
