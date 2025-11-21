@@ -17,6 +17,7 @@ models:
 
 # Sentence embedding model
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+embedding_dimension: 768  # NEW: размерность векторов эмбеддингов
 
 # Retriever settings
 retriever:

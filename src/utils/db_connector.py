@@ -1,5 +1,6 @@
 import os
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Iterator
+from contextlib import contextmanager
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2.extensions import connection as PGConnection
 from dotenv import load_dotenv
@@ -16,15 +17,13 @@ PORT = int(os.getenv("PORT"))  # Если PORT нет в .env, использу�
 DBNAME = os.getenv("DBNAME")
 
 
-print(f"USER: {USER}")
-print(f"HOST: {HOST}")
-print(f"PORT: {PORT}")
-print(f"DBNAME: {DBNAME}")
+logger.info(f"DB Connection config: USER={USER}, HOST={HOST}, PORT={PORT}, DBNAME={DBNAME}")
 
 
 class DBConnector:
-    def __init__(self) -> None:
+    def __init__(self, embedding_dimension: int = 768) -> None:
         self._pool: Optional[SimpleConnectionPool] = None
+        self.embedding_dimension = embedding_dimension
 
         try:
             logger.info("Инициализация пула соединений...")
@@ -49,26 +48,23 @@ class DBConnector:
             logger.error(f"Ошибка при инициализации пула соединений: {error}")
             raise
 
-    def get_connection(self) -> PGConnection:
-        """Получить соединение из пула."""
+    @contextmanager
+    def get_connection(self) -> Iterator[PGConnection]:
+        """Context manager для автоматического управления соединениями."""
+        conn = None
         try:
             if not self._pool:
                 raise RuntimeError("Пул соединений не инициализирован.")
             conn = self._pool.getconn()
             logger.info("Соединение получено из пула.")
-            return conn
+            yield conn
         except Exception as error:
-            logger.error(f"Ошибка при получении соединения: {error}")
+            logger.error(f"Ошибка при работе с соединением: {error}")
             raise
-
-    def release_connection(self, connection: PGConnection) -> None:
-        """Вернуть соединение обратно в пул."""
-        try:
-            if self._pool and connection:
-                self._pool.putconn(connection)
+        finally:
+            if conn:
+                self._pool.putconn(conn)
                 logger.info("Соединение возвращено в пул.")
-        except Exception as error:
-            logger.error(f"Ошибка при возврате соединения: {error}")
 
     def close(self) -> None:
         """Закрыть все соединения пула."""
@@ -81,45 +77,34 @@ class DBConnector:
 
     def initialize_db(self) -> None:
         """Создание таблицы и расширения, если нужно."""
-        conn = None
         try:
             logger.info("Инициализация базы данных...")
             self.ensure_pgvector_extension()
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT to_regclass('public.subtitles');")
-                exists = cursor.fetchone()
-
-                if not exists[0]:
-                    logger.warning("Таблица 'subtitles' не найдена. Создаём...")
-                    self.create_subtitles_table(conn)
-                else:
-                    logger.info("Таблица 'subtitles' уже существует.")
-
-            #Проверка существования индексов
-            self.release_connection(conn)
-            conn = None
+            
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT to_regclass('public.subtitles');")
+                    exists = cursor.fetchone()
+                    
+                    if not exists[0]:
+                        logger.warning("Таблица 'subtitles' не найдена. Создаём...")
+                        self.create_subtitles_table(conn)
+                    else:
+                        logger.info("Таблица 'subtitles' уже существует.")
+            
             self.ensure_indexes()
-
         except Exception as error:
             logger.error(f"Ошибка при инициализации БД: {error}")
             raise
 
-        finally:
-            if conn:
-                self.release_connection(conn)
-
     def ensure_indexes(self) -> None:
-        """Создать индекс на video_id и IVFFlat-индекс на embedding, если их нет."""
-        conn = self.get_connection()
-        try:
+        """Создать индекс на video_id и IVFFlat-индекс на embedding."""
+        with self.get_connection() as conn:
             with conn.cursor() as cur:
-                # B-Tree на video_id
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_subtitles_video_id
                       ON subtitles (video_id);
                 """)
-                # IVFFlat-индекс на векторные эмбеддинги
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_subtitles_embedding
                       ON subtitles
@@ -128,42 +113,34 @@ class DBConnector:
                 """)
             conn.commit()
             logger.info("Индексы subtitles созданы или уже существуют.")
-        finally:
-            self.release_connection(conn)
 
     def ensure_pgvector_extension(self) -> None:
         """Установить pgvector, если он ещё не установлен."""
-        conn = None
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
-                if not cursor.fetchone():
-                    cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-                    conn.commit()
-                    logger.info("Расширение 'pgvector' установлено.")
-                else:
-                    logger.info("Расширение 'pgvector' уже установлено.")
-
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
+                    if not cursor.fetchone():
+                        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                        conn.commit()
+                        logger.info("Расширение 'pgvector' установлено.")
+                    else:
+                        logger.info("Расширение 'pgvector' уже установлено.")
         except Exception as error:
             logger.error(f"Ошибка при установке pgvector: {error}")
-
-        finally:
-            if conn:
-                self.release_connection(conn)
 
     def create_subtitles_table(self, connection: PGConnection) -> None:
         """Создать таблицу 'subtitles'."""
         try:
             with connection.cursor() as cursor:
-                cursor.execute("""
+                cursor.execute(f"""
                     CREATE TABLE IF NOT EXISTS subtitles (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                         video_id TEXT NOT NULL,
                         start_time FLOAT NOT NULL,
                         end_time FLOAT NOT NULL,
                         text TEXT NOT NULL,
-                        embedding VECTOR(768)
+                        embedding VECTOR({self.embedding_dimension})
                     );
                 """)
                 connection.commit()
@@ -177,109 +154,74 @@ class DBConnector:
             text: str, embedding: List[float]
     ) -> None:
         """Добавить субтитры в таблицу."""
-        conn = None
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO subtitles (video_id, start_time, end_time, text, embedding)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (video_id, start_time, end_time, text, embedding))
-                conn.commit()
-
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO subtitles (video_id, start_time, end_time, text, embedding)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (video_id, start_time, end_time, text, embedding))
+                    conn.commit()
+            
             logger.info(f"Субтитры для {video_id} успешно добавлены.")
-
         except Exception as error:
             logger.error(f"Ошибка при вставке субтитров: {error}")
 
-        finally:
-            if conn:
-                self.release_connection(conn)
-
     def search_similar_embeddings(self, embedding: List[float], top_k: int = 5) -> List[Tuple[str, float]]:
-        """
-        Поиск похожих субтитров по embedding.
-        """
-        conn = None
+        """Поиск похожих субтитров по embedding."""
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                # собираем строку вида '[0.1,0.2,0.3]'
-                vector_text = "[" + ",".join(map(str, embedding)) + "]"
-                # передаем vector_text как параметр, а в SQL делаем ::vector
-                cursor.execute(
-                    """
-                    SELECT text,
-                           1 - (embedding <#> %s::vector) AS similarity
-                      FROM subtitles
-                     ORDER BY similarity DESC
-                     LIMIT %s
-                    """,
-                    (vector_text, top_k),
-                )
-                return cursor.fetchall()
-
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    vector_text = "[" + ",".join(map(str, embedding)) + "]"
+                    cursor.execute(
+                        """
+                        SELECT text,
+                               1 - (embedding <#> %s::vector) AS similarity
+                          FROM subtitles
+                         ORDER BY similarity DESC
+                         LIMIT %s
+                        """,
+                        (vector_text, top_k),
+                    )
+                    return cursor.fetchall()
         except Exception as error:
             logger.error(f"Ошибка при поиске эмбеддингов: {error}")
             return []
 
-        finally:
-            if conn:
-                self.release_connection(conn)
-
     def drop_table(self) -> None:
         """Удалить таблицу 'subtitles'."""
-        conn = None
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("DROP TABLE IF EXISTS subtitles;")
-                conn.commit()
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("DROP TABLE IF EXISTS subtitles;")
+                    conn.commit()
             logger.info("Таблица 'subtitles' удалена.")
-
         except Exception as error:
             logger.error(f"Ошибка при удалении таблицы: {error}")
 
-        finally:
-            if conn:
-                self.release_connection(conn)
-
     def fetch_subtitles(self, video_id: str) -> List[Tuple[str]]:
         """Получить субтитры по video_id."""
-        conn = None
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT 1 FROM subtitles WHERE video_id = %s LIMIT 1;", (video_id,))
-                if not cursor.fetchone():
-                    logger.warning(f"Субтитры для {video_id} не найдены.")
-                    return []
-
-                cursor.execute("SELECT text FROM subtitles WHERE video_id = %s;", (video_id,))
-                subtitles = cursor.fetchall()
-            return subtitles
-
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM subtitles WHERE video_id = %s LIMIT 1;", (video_id,))
+                    if not cursor.fetchone():
+                        logger.warning(f"Субтитры для {video_id} не найдены.")
+                        return []
+                    
+                    cursor.execute("SELECT text FROM subtitles WHERE video_id = %s;", (video_id,))
+                    return cursor.fetchall()
         except Exception as error:
             logger.error(f"Ошибка при извлечении субтитров: {error}")
             return []
 
-        finally:
-            if conn:
-                self.release_connection(conn)
-
     def clear_table(self) -> None:
         """Удалить все записи из таблицы."""
-        conn = None
         try:
-            conn = self.get_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("DELETE FROM subtitles;")
-                conn.commit()
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("DELETE FROM subtitles;")
+                    conn.commit()
             logger.info("Таблица 'subtitles' очищена.")
-
         except Exception as error:
             logger.error(f"Ошибка при очистке таблицы: {error}")
-
-        finally:
-            if conn:
-                self.release_connection(conn)

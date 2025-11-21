@@ -41,15 +41,12 @@ class LangChainRAG:
         self.config = config
 
         # Конфиги
-        self.language = config.get("language", "ru")
-        retr_cfg = config.get("retriever", {}) or {}
-        rer_cfg = config.get("reranker", {}) or {}
-
-        self.retriever_top_k = int(retr_cfg.get("top_k", 5))
-        self.reranker_top_k = int(rer_cfg.get("top_k", 5))
+        self.language = config.language
+        self.retriever_top_k = config.retriever.top_k
+        self.reranker_top_k = config.reranker.top_k
 
         # use_reranker можно переопределить через аргумент конструктора
-        self.use_reranker = bool(rer_cfg.get("use_reranker", False)) if use_reranker is None else bool(use_reranker)
+        self.use_reranker = config.reranker.use_reranker if use_reranker is None else bool(use_reranker)
 
         # Адаптеры LangChain
         self.retriever = LCRetrieverAdapter(vectorstore=self.vectorstore, top_k=self.retriever_top_k)

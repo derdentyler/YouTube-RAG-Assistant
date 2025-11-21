@@ -56,7 +56,9 @@ For example, load [saiga_llama3_8b-q4_k_m.gguf](https://huggingface.co/itlwas/sa
 
 ### Step 5: Configure the Settings
 
-The project uses a configuration file where important parameters such as the model path, model settings, and retriever settings are specified. Update the config according to your preferences.
+The project uses a configuration file where important parameters such as the model path, model settings, and retriever settings are specified. The configuration is validated using Pydantic models, which ensures type safety and catches configuration errors at startup.
+
+**Important:** All configuration errors are detected when the application starts, not during runtime. Make sure your configuration file is valid before running the application.
 
 Example configuration (`config.yaml`):
 
@@ -75,6 +77,7 @@ models:
     model_name: "mistralai/Mistral-7B-Instruct-v0.1"
 
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+embedding_dimension: 768  # Dimension of embedding vectors
 
 retriever:
   top_k: 6
@@ -89,6 +92,14 @@ reranker:
 subtitle_block_duration: 60
 subtitle_block_overlap: 10
 ```
+
+**Common Configuration Errors:**
+
+- **Missing model file**: If `model_path` is specified but the file doesn't exist, the application will fail to start with a clear error message.
+- **Invalid language**: The `language` field must be either `"ru"` or `"en"`. If you specify a different language, you'll get a validation error.
+- **Missing model for language**: If you set `language: "en"` but don't have a model configured for `"en"` in the `models` section, the application will fail to start.
+- **Invalid overlap**: `subtitle_block_overlap` must be less than `subtitle_block_duration`, otherwise you'll get a validation error.
+- **Missing reranker model**: If `use_reranker: true` but `model_path` is not specified or the file doesn't exist, the application will fail to start.
 
 ### Step 6: Run the Application
 
@@ -190,6 +201,49 @@ python src/reranker/trainer.py \
 ```
 
 
+## Architecture
+
+### Dependency Injection
+
+The application uses Dependency Injection pattern for managing dependencies:
+
+- **DependencyContainer**: Manages lifecycle of heavy objects (DB connections, ML models)
+- **FastAPI Depends**: Injects dependencies into endpoints
+- **Lifespan management**: Proper initialization and cleanup of resources
+
+**Benefits:**
+- Better testability: endpoints can be tested with mock dependencies
+- Resource efficiency: models loaded once and reused
+- Clean separation of concerns
+- Easy to swap implementations
+
+**Example:**
+```python
+from src.core.dependencies.providers import RAGModelDep
+
+@app.post("/query")
+def query_endpoint(
+    request: QueryRequest,
+    rag_model: RAGModelDep  # Automatically injected
+) -> QueryResponse:
+    return rag_model.process_query(request.video_url, request.query)
+```
+
+### Testing with DI
+
+Override dependencies in tests:
+
+```python
+def test_endpoint():
+    mock_rag = MagicMock()
+    app.dependency_overrides[get_rag_model] = lambda: mock_rag
+    
+    client = TestClient(app)
+    response = client.post("/query", json={...})
+    
+    app.dependency_overrides.clear()
+```
+
 ## Technologies
 
 - **FastAPI** - for creating the API
@@ -229,7 +283,7 @@ This project is licensed under the MIT License.
 
 In the future, I plan to add the following features:
 
-- **Refactoring**: LangSmith integration. Add Config pydantic-class.
+- **Refactoring**: LangSmith integration.
 - **User Interface (UI)**: To provide a user-friendly interface for interacting with the API.
 
 ## Contact

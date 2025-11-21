@@ -33,11 +33,11 @@ class SubtitleExtractor:
 
         # YouTube API и язык
         self.api = YouTubeTranscriptApi()
-        self.language = self.config.get("language", "ru")
+        self.language = self.config.language
 
         # Параметры временных окон (секунды)
-        self.block_duration = int(self.config.get("subtitle_block_duration", 60))
-        self.block_overlap = int(self.config.get("subtitle_block_overlap", self.block_duration // 2))
+        self.block_duration = self.config.subtitle_block_duration
+        self.block_overlap = self.config.subtitle_block_overlap
 
         # Путь для временного хранения VTT
         self.download_path = os.getenv("SUBTITLES_DIR", "downloads/subtitles")

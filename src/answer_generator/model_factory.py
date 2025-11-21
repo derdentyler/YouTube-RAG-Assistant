@@ -5,6 +5,7 @@ from transformers import pipeline
 from llama_cpp import Llama
 import gc
 from src.core.abstractions.llm import BaseLLM
+from src.core.config.models import AppConfig
 
 
 class TransformersLLM(BaseLLM):
@@ -108,17 +109,17 @@ class LlamaCppLLM(BaseLLM):
             return
 
 
-def model_factory(config: dict) -> BaseLLM:
+def model_factory(config: AppConfig) -> BaseLLM:
     """Фабрика для создания LLM"""
-    lang = config.get("language", "en")
-    model_config = config["models"][lang]
-
-    if model_config["backend"] == "transformers":
-        return TransformersLLM(model_config["model_name"])
-    elif model_config["backend"] == "llama.cpp":
+    lang = config.language
+    model_config = config.models[lang]
+    
+    if model_config.backend == "transformers":
+        return TransformersLLM(model_config.model_name)
+    elif model_config.backend == "llama.cpp":
         return LlamaCppLLM(
-            model_config["model_path"],
-            n_ctx=model_config.get("n_ctx", 2048)
+            model_config.model_path,
+            n_ctx=model_config.n_ctx
         )
     else:
-        raise ValueError(f"Unknown backend: {model_config['backend']}")
+        raise ValueError(f"Unknown backend: {model_config.backend}")

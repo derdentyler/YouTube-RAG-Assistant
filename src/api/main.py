@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Annotated, Optional
+from contextlib import asynccontextmanager
 from src.answer_generator.rag_model import RAGModel
 from src.utils.logger_loader import LoggerLoader
-from src.utils.db_connector import DBConnector
+from src.core.dependencies.providers import RAGModelDep, ConfigDep
+from src.core.dependencies.container import get_container, reset_container
 import uvicorn
 from dotenv import load_dotenv
 import os
@@ -14,49 +16,83 @@ load_dotenv()
 # Логгер
 logger = LoggerLoader.get_logger()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения."""
+    # Startup
+    logger.info("Starting application...")
+    container = get_container()
+    logger.info("Dependency container initialized")
+    
+    # Предзагрузка тяжелых объектов
+    logger.info("Preloading heavy models...")
+    _ = container.get_rag_model()  # Загружает все зависимости
+    logger.info("All dependencies loaded successfully")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down application...")
+    reset_container()
+    logger.info("Application shutdown complete")
+
+
 # FastAPI приложение
 app: FastAPI = FastAPI(
     title="RAG API",
     description="API для обработки запросов с помощью Retrieval-Augmented Generation",
     version="1.0.0",
+    lifespan=lifespan  # Используем lifespan вместо on_event
 )
 
-# Инициализация DB и RAG модели
-db_connector: DBConnector = DBConnector()
-rag_model: RAGModel = RAGModel(db_connector=db_connector)
-logger.info("RAGModel успешно инициализирована с DBConnector")
 
-# ----- Pydantic схемы с Annotated для Swagger UI -----
+# ----- Pydantic схемы -----
 class QueryRequest(BaseModel):
-    video_url: Annotated[str, "URL видео"]  # Используем аннотацию для добавления подсказки в Swagger
-    query: Annotated[str, "Вопрос к видео"]  # Подсказка для запроса
+    video_url: Annotated[str, "URL видео"]
+    query: Annotated[str, "Вопрос к видео"]
+
 
 class QueryResponse(BaseModel):
     answer: str
-    context: Optional[str] = None  # Можно включать для отладки
+    context: Optional[str] = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    config_language: str
+    models_loaded: bool
+
 
 # ----- Роуты -----
-@app.get("/health")
-def health_check() -> dict:
+@app.get("/health", response_model=HealthResponse)
+def health_check(config: ConfigDep) -> HealthResponse:
+    """Health check с информацией о конфигурации."""
     logger.info("Получен запрос на /health")
-    return {"status": "ok"}
+    container = get_container()
+    models_loaded = container._rag_model is not None
+    
+    return HealthResponse(
+        status="ok",
+        config_language=config.language,
+        models_loaded=models_loaded
+    )
+
 
 @app.post("/query", response_model=QueryResponse)
-def query_endpoint(request: QueryRequest) -> QueryResponse:
+def query_endpoint(
+    request: QueryRequest,
+    rag_model: RAGModelDep  # Внедрение через Depends
+) -> QueryResponse:
+    """Обработка запроса с использованием RAG модели."""
     try:
         logger.info(f"Запрос получен: video_url='{request.video_url}', query='{request.query}'")
         answer: str = rag_model.process_query(request.video_url, request.query)
         logger.info(f"Ответ сгенерирован (обрезка до 500 символов): {answer[:500]}...")
         return QueryResponse(answer=answer)
     except Exception as e:
-        logger.error(f"Ошибка при обработке запроса: {e}")
+        logger.error(f"Ошибка при обработке запроса: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Ошибка обработки запроса")
-
-# ----- Завершение работы -----
-@app.on_event("shutdown")
-def shutdown_event() -> None:
-    db_connector.close()
-    logger.info("Пул соединений закрыт")
 
 # ----- Запуск сервера -----
 if __name__ == "__main__":

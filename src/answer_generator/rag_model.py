@@ -1,6 +1,9 @@
 import time
+from typing import Optional
 from sentence_transformers import SentenceTransformer
 from src.core.abstractions.embeddings import Embedder
+from src.core.abstractions.llm import BaseLLM
+from src.core.config.models import AppConfig
 from src.utils.db_connector import DBConnector
 from src.utils.logger_loader import LoggerLoader
 from src.data_processing.subtitle_extractor import SubtitleExtractor
@@ -21,24 +24,43 @@ class RAGModel:
 
     Все тяжёлые объекты (LLM, VectorStore, Embedder) создаются один раз
     и переиспользуются для обоих режимов.
+    
+    Поддерживает внедрение зависимостей для улучшения тестируемости
+    и оптимизации загрузки моделей.
     """
 
-    def __init__(self, db_connector: DBConnector):
+    def __init__(
+        self, 
+        db_connector: DBConnector,
+        embedding_model: Optional[Embedder] = None,
+        llm: Optional[BaseLLM] = None,
+        config: Optional[AppConfig] = None
+    ):
         self.db = db_connector
         self.logger = LoggerLoader.get_logger()
 
         # Загружаем конфиг
-        self.config = ConfigLoader.get_config()
-        self.language = self.config.get("language", "ru")
-        self.use_langchain = self.config.get("use_langchain", False)
-        self.use_reranker = self.config.get("reranker", {}).get("use_reranker", False)
+        self.config = config or ConfigLoader.get_config()
+        self.language = self.config.language
+        self.use_langchain = self.config.use_langchain
+        self.use_reranker = self.config.reranker.use_reranker
 
-        # --- Общие компоненты ---
-        embed_name = self.config.get("embedding_model")
-        self.embedding_model: Embedder = SentenceTransformer(embed_name)
+        # --- Общие компоненты (с возможностью инъекции) ---
+        if embedding_model is None:
+            embed_name = self.config.embedding_model
+            self.embedding_model: Embedder = SentenceTransformer(embed_name)
+            self.logger.info(f"Loaded embedding model: {embed_name}")
+        else:
+            self.embedding_model = embedding_model
+            self.logger.info("Using injected embedding model")
 
-        # LLM грузим один раз
-        self.llm = model_factory(self.config)
+        # LLM грузим один раз (с возможностью инъекции)
+        if llm is None:
+            self.llm = model_factory(self.config)
+            self.logger.info(f"Loaded LLM for language: {self.language}")
+        else:
+            self.llm = llm
+            self.logger.info("Using injected LLM")
 
         # Векторное хранилище общее для всех режимов
         self.vectorstore = DBVectorStore(
@@ -66,17 +88,16 @@ class RAGModel:
         else:
             # Нативный RAG
             self.prompt_template = PromptLoader().load(self.language)
-            self.retriever_top_k = self.config.get("retriever", {}).get("top_k", 5)
+            self.retriever_top_k = self.config.retriever.top_k
 
             self.reranker = None
             self.reranker_top_k = None
             if self.use_reranker:
-                rer_cfg = self.config.get("reranker", {})
                 self.reranker = Reranker(
-                    rer_cfg.get("model_path"),
+                    self.config.reranker.model_path,
                     embedder=self.embedding_model
                 )
-                self.reranker_top_k = rer_cfg.get("top_k", 5)
+                self.reranker_top_k = self.config.reranker.top_k
 
         self.logger.info(
             f"Initialized RAGModel | langchain={self.use_langchain} | reranker={self.use_reranker}"
