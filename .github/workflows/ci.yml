@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      PYTHONPATH:      ${{ secrets.PYTHONPATH }}
+      # PYTHONPATH устанавливаем явно в шагах, где нужно
       LOG_FILE:        ${{ secrets.LOG_FILE }}
       SUBTITLES_DIR:   ${{ secrets.SUBTITLES_DIR }}
       SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
@@ -73,6 +73,9 @@ jobs:
           pip cache purge || true
 
       - name: Run tests
+        env:
+          # Устанавливаем PYTHONPATH явно для импорта модулей src
+          PYTHONPATH: ${{ github.workspace }}
         run: poetry run pytest --maxfail=1 --disable-warnings -q
 
       - name: Clean up after tests
