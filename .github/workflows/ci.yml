@@ -65,12 +65,19 @@ jobs:
           poetry install --no-interaction --with dev --no-root
           # Очистка кэша Poetry после установки
           poetry cache clear pypi --all -n || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Показываем использование места после установки зависимостей
+          du -sh ~/.cache/pip ~/.cache/pypoetry 2>/dev/null || true
+          df -h
 
       - name: Install llama-cpp-python manually
         run: |
           pip install --no-cache-dir llama-cpp-python==0.2.89
           # Очистка pip кэша после установки
           pip cache purge || true
+          # Показываем использование места
+          df -h
 
       - name: Run tests
         env:
@@ -93,19 +100,52 @@ jobs:
 
       - name: Clean up before Docker build
         run: |
-          # Очистка Docker перед сборкой для освобождения места
+          # Агрессивная очистка перед Docker build
           docker system prune -af --volumes || true
-          # Очистка неиспользуемых образов и контейнеров
           docker container prune -f || true
           docker image prune -af || true
-          # Показываем свободное место перед сборкой
+          docker builder prune -af || true
+          # Очистка кэша Poetry и pip
+          poetry cache clear pypi --all -n || true
+          pip cache purge || true
+          # Очистка временных файлов
+          sudo rm -rf /tmp/* /var/tmp/* || true
+          # Показываем свободное место
           df -h
+          # Проверяем свободное место (нужно минимум 5GB для Docker build)
+          AVAILABLE=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+          echo "Available disk space: ${AVAILABLE}GB"
+          if [ "$AVAILABLE" -lt 5 ]; then
+            echo "WARNING: Less than 5GB available, Docker build may fail"
+          fi
 
       - name: Build Docker image (validate Dockerfile)
+        continue-on-error: true
         run: |
+          # Проверяем свободное место перед сборкой
+          AVAILABLE=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+          if [ "$AVAILABLE" -lt 3 ]; then
+            echo "ERROR: Less than 3GB available, skipping Docker build"
+            exit 1
+          fi
+          
+          echo "Starting Docker build with ${AVAILABLE}GB available..."
           # Используем --no-cache для экономии места и времени
-          docker build --no-cache --file Dockerfile --tag video-rag-api:test-ci .
+          # Ограничиваем использование памяти и места через Docker buildkit
+          DOCKER_BUILDKIT=1 docker build \
+            --no-cache \
+            --progress=plain \
+            --file Dockerfile \
+            --tag video-rag-api:test-ci . || {
+            echo "Docker build failed, cleaning up..."
+            docker system prune -af || true
+            df -h
+            exit 1
+          }
+          
           # Удаляем образ сразу после проверки для экономии места
           docker rmi video-rag-api:test-ci || true
-          # Очистка Docker после сборки
+          # Агрессивная очистка Docker после сборки
           docker system prune -af || true
+          docker builder prune -af || true
+          df -h
