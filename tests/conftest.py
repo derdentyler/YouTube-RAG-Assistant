@@ -9,11 +9,17 @@ from src.core.config.models import AppConfig, ModelConfigLlamaCpp
 @pytest.fixture(autouse=True)
 def setup_test_environment():
     """Настройка тестового окружения перед каждым тестом."""
-    # Устанавливаем переменную окружения для пропуска проверки файлов моделей
+    # Устанавливаем переменные окружения для пропуска проверки файлов моделей
+    # и предотвращения загрузки моделей
     os.environ["SKIP_MODEL_FILE_CHECK"] = "true"
+    os.environ["HF_HOME"] = "/tmp/hf_cache"
+    os.environ["TRANSFORMERS_CACHE"] = "/tmp/transformers_cache"
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/tmp/sentence_transformers_cache"
     yield
     # Очищаем после теста
-    os.environ.pop("SKIP_MODEL_FILE_CHECK", None)
+    for key in ["SKIP_MODEL_FILE_CHECK", "HF_HOME", "TRANSFORMERS_CACHE", 
+                "SENTENCE_TRANSFORMERS_HOME"]:
+        os.environ.pop(key, None)
 
 
 @pytest.fixture(autouse=True)

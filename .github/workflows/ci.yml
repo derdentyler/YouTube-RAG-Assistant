@@ -22,15 +22,36 @@ jobs:
       PORT:            ${{ secrets.PORT }}
       DBNAME:          ${{ secrets.DBNAME }}
       CONFIG_PATH:     config/config.yaml
+      # Предотвращаем загрузку моделей в тестах
+      SKIP_MODEL_FILE_CHECK: "true"
+      # Перенаправляем кэш моделей в /tmp для экономии места
+      HF_HOME: /tmp/hf_cache
+      TRANSFORMERS_CACHE: /tmp/transformers_cache
+      SENTENCE_TRANSFORMERS_HOME: /tmp/sentence_transformers_cache
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Free disk space
+        run: |
+          # Очистка системных пакетов и кэша
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          # Очистка Docker (если есть)
+          docker system prune -af --volumes || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Очистка временных файлов
+          sudo rm -rf /tmp/* /var/tmp/*
+          # Показываем свободное место
+          df -h
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v4
         with:
           python-version: 3.12
+          cache: 'poetry'
 
       - name: Install Poetry
         run: |
@@ -41,13 +62,38 @@ jobs:
         run: poetry config virtualenvs.create false
 
       - name: Install dependencies (main + dev except llama-cpp-python)
-        run: poetry install --no-interaction --with dev
+        run: |
+          poetry install --no-interaction --with dev --no-root
+          # Очистка кэша Poetry после установки
+          poetry cache clear pypi --all -n || true
 
       - name: Install llama-cpp-python manually
-        run: pip install llama-cpp-python==0.2.89
+        run: |
+          pip install --no-cache-dir llama-cpp-python==0.2.89
+          # Очистка pip кэша после установки
+          pip cache purge || true
 
       - name: Run tests
         run: poetry run pytest --maxfail=1 --disable-warnings -q
 
+      - name: Clean up after tests
+        if: always()
+        run: |
+          # Очистка кэша моделей после тестов
+          rm -rf /tmp/hf_cache /tmp/transformers_cache /tmp/sentence_transformers_cache || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Очистка __pycache__
+          find . -type d -name __pycache__ -exec rm -r {} + || true
+          find . -type f -name "*.pyc" -delete || true
+          # Показываем свободное место
+          df -h
+
       - name: Build Docker image (validate Dockerfile)
-        run: docker build --file Dockerfile --tag video-rag-api:test-ci .
+        run: |
+          # Используем --no-cache для экономии места и времени
+          docker build --no-cache --file Dockerfile --tag video-rag-api:test-ci .
+          # Удаляем образ после проверки
+          docker rmi video-rag-api:test-ci || true
+          # Очистка Docker
+          docker system prune -af || true
