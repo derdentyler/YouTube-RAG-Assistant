@@ -1,20 +1,48 @@
 import pytest
+import os
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from src.api.main import app
-from src.core.dependencies.providers import get_rag_model
+from src.core.dependencies.providers import get_rag_model, get_config
+from src.core.config.models import AppConfig, ModelConfigLlamaCpp, ModelConfigTransformers
 
 
 def test_health_check():
     """Тест health check эндпоинта."""
-    client = TestClient(app)
-    response = client.get("/health")
+    # Создаем мок конфига для теста
+    mock_config = AppConfig(
+        language='ru',
+        models={
+            'ru': ModelConfigLlamaCpp(
+                backend='llama.cpp',
+                model_path='./models/llm/test_model.gguf',  # Путь не проверяется благодаря SKIP_MODEL_FILE_CHECK
+                n_ctx=1024
+            ),
+            'en': ModelConfigTransformers(
+                backend='transformers',
+                model_name='test-model',
+                n_ctx=1024
+            )
+        },
+        embedding_model='test-embedding-model',
+        embedding_dimension=768
+    )
     
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert "config_language" in data
-    assert "models_loaded" in data
+    # Мокируем провайдер конфига
+    app.dependency_overrides[get_config] = lambda: mock_config
+    
+    try:
+        client = TestClient(app)
+        response = client.get("/health")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "config_language" in data
+        assert "models_loaded" in data
+    finally:
+        # Очищаем переопределения
+        app.dependency_overrides.clear()
 
 
 def test_query_endpoint_with_mock():

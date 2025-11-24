@@ -13,6 +13,9 @@ class ModelConfigLlamaCpp(BaseModel):
     @classmethod
     def validate_model_path(cls, v: str) -> str:
         """Проверка существования файла модели."""
+        # Пропускаем проверку в тестовом окружении (CI/CD)
+        if os.getenv("SKIP_MODEL_FILE_CHECK", "false").lower() == "true":
+            return v
         if not os.path.exists(v):
             raise ValueError(f"Model file not found: {v}")
         return v
@@ -42,7 +45,10 @@ class RerankerConfig(BaseModel):
         """Проверка наличия model_path если use_reranker=True."""
         if self.use_reranker and not self.model_path:
             raise ValueError("model_path is required when use_reranker=True")
-        if self.use_reranker and self.model_path and not os.path.exists(self.model_path):
+        # Пропускаем проверку в тестовом окружении (CI/CD)
+        if (self.use_reranker and self.model_path and 
+            os.getenv("SKIP_MODEL_FILE_CHECK", "false").lower() != "true" and
+            not os.path.exists(self.model_path)):
             raise ValueError(f"Reranker model file not found: {self.model_path}")
         return self
 
@@ -81,6 +87,26 @@ class AppConfig(BaseModel):
         le=300,
         description="Overlap between subtitle blocks in seconds"
     )
+    
+    @model_validator(mode='before')
+    @classmethod
+    def validate_models_dict(cls, data: dict):
+        """Валидация и преобразование словаря моделей с правильным определением типа."""
+        if isinstance(data, dict) and 'models' in data:
+            validated_models = {}
+            for lang, model_config in data['models'].items():
+                if isinstance(model_config, dict):
+                    backend = model_config.get('backend')
+                    if backend == 'llama.cpp':
+                        validated_models[lang] = ModelConfigLlamaCpp(**model_config)
+                    elif backend == 'transformers':
+                        validated_models[lang] = ModelConfigTransformers(**model_config)
+                    else:
+                        raise ValueError(f"Unknown backend: {backend}")
+                else:
+                    validated_models[lang] = model_config
+            data['models'] = validated_models
+        return data
     
     @model_validator(mode='after')
     def validate_subtitle_overlap(self):
