@@ -91,11 +91,21 @@ jobs:
           # Показываем свободное место
           df -h
 
+      - name: Clean up before Docker build
+        run: |
+          # Очистка Docker перед сборкой для освобождения места
+          docker system prune -af --volumes || true
+          # Очистка неиспользуемых образов и контейнеров
+          docker container prune -f || true
+          docker image prune -af || true
+          # Показываем свободное место перед сборкой
+          df -h
+
       - name: Build Docker image (validate Dockerfile)
         run: |
           # Используем --no-cache для экономии места и времени
           docker build --no-cache --file Dockerfile --tag video-rag-api:test-ci .
-          # Удаляем образ после проверки
+          # Удаляем образ сразу после проверки для экономии места
           docker rmi video-rag-api:test-ci || true
-          # Очистка Docker
+          # Очистка Docker после сборки
           docker system prune -af || true
