@@ -1,7 +1,10 @@
 import pytest
+import os
+from pathlib import Path
 
 from src.answer_generator.model_factory import model_factory, TransformersLLM, LlamaCppLLM
 from src.utils.logger_loader import LoggerLoader
+from src.core.config.models import AppConfig, ModelConfigLlamaCpp, ModelConfigTransformers
 
 # Заглушка для генерации текстов
 class DummyLLM:
@@ -27,18 +30,24 @@ def patch_dependencies(monkeypatch):
     monkeypatch.setattr(LoggerLoader, 'get_logger', lambda: None)
 
 
-def test_model_factory_llama_cpp():
+def test_model_factory_llama_cpp(tmp_path):
+    # Создаем временный файл модели
+    model_file = tmp_path / "test_model.gguf"
+    model_file.write_text("fake")
+    
     # Конфиг для backend llama.cpp
-    config = {
-        'language': 'ru',  # выбираем русскую модель
-        'models': {
-            'ru': {
-                'backend': 'llama.cpp',            # тип бэкенда
-                'model_path': 'path/to/model',     # путь к модели
-                'n_ctx': 1024                       # контекст
-            }
-        }
-    }
+    config = AppConfig(
+        language='ru',
+        models={
+            'ru': ModelConfigLlamaCpp(
+                backend='llama.cpp',
+                model_path=str(model_file),
+                n_ctx=1024
+            )
+        },
+        embedding_model='test-model',
+        embedding_dimension=768
+    )
     # Вызываем фабрику
     model = model_factory(config)
     # Проверяем, что возвращён объект имеет метод generate
@@ -49,15 +58,17 @@ def test_model_factory_llama_cpp():
 
 def test_model_factory_transformers():
     # Конфиг для backend transformers
-    config = {
-        'language': 'en',  # английская модель
-        'models': {
-            'en': {
-                'backend': 'transformers',        # тип бэкенда
-                'model_name': 'some/transformer'  # имя модели в HF
-            }
-        }
-    }
+    config = AppConfig(
+        language='en',
+        models={
+            'en': ModelConfigTransformers(
+                backend='transformers',
+                model_name='some/transformer'
+            )
+        },
+        embedding_model='test-model',
+        embedding_dimension=768
+    )
     # Получение модели из фабрики
     model = model_factory(config)
     # Проверяем, что у неё есть метод generate
@@ -66,16 +77,27 @@ def test_model_factory_transformers():
     assert model.generate("another prompt", max_length=10) == "generated"
 
 
-def test_model_factory_unknown_backend_raises():
-    # Конфиг без корректного backend
-    config = {
-        'language': 'ru',
-        'models': {
-            'ru': {
-                # backend не указан или не соответствует ожидаемым
-            }
-        }
-    }
+def test_model_factory_unknown_backend_raises(tmp_path):
+    # Создаем временный файл модели
+    model_file = tmp_path / "test_model.gguf"
+    model_file.write_text("fake")
+    
+    # Конфиг с невалидным backend (Pydantic не позволит создать такой конфиг)
+    # Но можно попробовать создать с валидным backend и затем изменить его
+    config = AppConfig(
+        language='ru',
+        models={
+            'ru': ModelConfigLlamaCpp(
+                backend='llama.cpp',
+                model_path=str(model_file),
+                n_ctx=1024
+            )
+        },
+        embedding_model='test-model',
+        embedding_dimension=768
+    )
+    # Меняем backend на невалидный (это вызовет ошибку в фабрике)
+    config.models['ru'].backend = "unknown_backend"  # type: ignore
     # Ожидаем ValueError при неизвестном backend
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="Unknown backend"):
         model_factory(config)

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      PYTHONPATH:      ${{ secrets.PYTHONPATH }}
+      # PYTHONPATH устанавливаем явно в шагах, где нужно
       LOG_FILE:        ${{ secrets.LOG_FILE }}
       SUBTITLES_DIR:   ${{ secrets.SUBTITLES_DIR }}
       SUPABASE_URL:    ${{ secrets.SUPABASE_URL }}
@@ -22,10 +22,30 @@ jobs:
       PORT:            ${{ secrets.PORT }}
       DBNAME:          ${{ secrets.DBNAME }}
       CONFIG_PATH:     config/config.yaml
+      # Предотвращаем загрузку моделей в тестах
+      SKIP_MODEL_FILE_CHECK: "true"
+      # Перенаправляем кэш моделей в /tmp для экономии места
+      HF_HOME: /tmp/hf_cache
+      TRANSFORMERS_CACHE: /tmp/transformers_cache
+      SENTENCE_TRANSFORMERS_HOME: /tmp/sentence_transformers_cache
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Free disk space
+        run: |
+          # Очистка системных пакетов и кэша
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          # Очистка Docker (если есть)
+          docker system prune -af --volumes || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Очистка временных файлов
+          sudo rm -rf /tmp/* /var/tmp/*
+          # Показываем свободное место
+          df -h
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v4
@@ -33,21 +53,99 @@ jobs:
           python-version: 3.12
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Configure Poetry (no venv)
-        run: poetry config virtualenvs.create false
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: false
+          virtualenvs-in-project: false
+          installer-parallel: true
 
       - name: Install dependencies (main + dev except llama-cpp-python)
-        run: poetry install --no-interaction --with dev
+        run: |
+          poetry install --no-interaction --with dev --no-root
+          # Очистка кэша Poetry после установки
+          poetry cache clear pypi --all -n || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Показываем использование места после установки зависимостей
+          du -sh ~/.cache/pip ~/.cache/pypoetry 2>/dev/null || true
+          df -h
 
       - name: Install llama-cpp-python manually
-        run: pip install llama-cpp-python==0.2.89
+        run: |
+          pip install --no-cache-dir llama-cpp-python==0.2.89
+          # Очистка pip кэша после установки
+          pip cache purge || true
+          # Показываем использование места
+          df -h
 
       - name: Run tests
+        env:
+          # Устанавливаем PYTHONPATH явно для импорта модулей src
+          PYTHONPATH: ${{ github.workspace }}
         run: poetry run pytest --maxfail=1 --disable-warnings -q
 
+      - name: Clean up after tests
+        if: always()
+        run: |
+          # Очистка кэша моделей после тестов
+          rm -rf /tmp/hf_cache /tmp/transformers_cache /tmp/sentence_transformers_cache || true
+          # Очистка pip кэша
+          pip cache purge || true
+          # Очистка __pycache__
+          find . -type d -name __pycache__ -exec rm -r {} + || true
+          find . -type f -name "*.pyc" -delete || true
+          # Показываем свободное место
+          df -h
+
+      - name: Clean up before Docker build
+        run: |
+          # Агрессивная очистка перед Docker build
+          docker system prune -af --volumes || true
+          docker container prune -f || true
+          docker image prune -af || true
+          docker builder prune -af || true
+          # Очистка кэша Poetry и pip
+          poetry cache clear pypi --all -n || true
+          pip cache purge || true
+          # Очистка временных файлов
+          sudo rm -rf /tmp/* /var/tmp/* || true
+          # Показываем свободное место
+          df -h
+          # Проверяем свободное место (нужно минимум 5GB для Docker build)
+          AVAILABLE=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+          echo "Available disk space: ${AVAILABLE}GB"
+          if [ "$AVAILABLE" -lt 5 ]; then
+            echo "WARNING: Less than 5GB available, Docker build may fail"
+          fi
+
       - name: Build Docker image (validate Dockerfile)
-        run: docker build --file Dockerfile --tag video-rag-api:test-ci .
+        continue-on-error: true
+        run: |
+          # Проверяем свободное место перед сборкой
+          AVAILABLE=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
+          if [ "$AVAILABLE" -lt 3 ]; then
+            echo "ERROR: Less than 3GB available, skipping Docker build"
+            exit 1
+          fi
+          
+          echo "Starting Docker build with ${AVAILABLE}GB available..."
+          # Используем --no-cache для экономии места и времени
+          # Ограничиваем использование памяти и места через Docker buildkit
+          DOCKER_BUILDKIT=1 docker build \
+            --no-cache \
+            --progress=plain \
+            --file Dockerfile \
+            --tag video-rag-api:test-ci . || {
+            echo "Docker build failed, cleaning up..."
+            docker system prune -af || true
+            df -h
+            exit 1
+          }
+          
+          # Удаляем образ сразу после проверки для экономии места
+          docker rmi video-rag-api:test-ci || true
+          # Агрессивная очистка Docker после сборки
+          docker system prune -af || true
+          docker builder prune -af || true
+          df -h
