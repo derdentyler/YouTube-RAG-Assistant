@@ -14,6 +14,7 @@ from yt_dlp import YoutubeDL
 from src.utils.config_loader import ConfigLoader
 from src.utils.logger_loader import LoggerLoader
 from src.utils.subtitles_cleaner import clean_subtitles
+from src.core.abstractions.embeddings import Embedder
 
 
 class SubtitleExtractor:
@@ -23,11 +24,11 @@ class SubtitleExtractor:
     Пайплайн:
       1. Получение raw‑сегментов через API или VTT‑fallback.
       2. Очистка и дедупликация подряд идущих сегментов.
-      3. Time‑based chunking: окна duration/overlap из конфига.
+      3. Chunking: semantic (семантический) или time (временной) из конфига.
       4. Возврат списка чистых, уникальных фрагментов для RAG.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, embedding_model: Optional[Embedder] = None) -> None:
         self.config = ConfigLoader.get_config()
         self.logger = LoggerLoader.get_logger()
 
@@ -35,15 +36,44 @@ class SubtitleExtractor:
         self.api = YouTubeTranscriptApi()
         self.language = self.config.language
 
-        # Параметры временных окон (секунды)
+        # Параметры временных окон (секунды) - для обратной совместимости
         self.block_duration = self.config.subtitle_block_duration
         self.block_overlap = self.config.subtitle_block_overlap
+
+        # Настройки chunking
+        self.chunking_method = self.config.chunking.method
+        self.embedding_model = embedding_model
+
+        # Инициализация SemanticChunker если нужен
+        self.semantic_chunker = None
+        if self.chunking_method == "semantic":
+            if embedding_model is None:
+                self.logger.warning(
+                    "Semantic chunking requires embedding_model. "
+                    "Falling back to time-based chunking."
+                )
+                self.chunking_method = "time"
+            else:
+                from src.data_processing.semantic_chunker import SemanticChunker
+                self.semantic_chunker = SemanticChunker(
+                    embedding_model=embedding_model,
+                    max_tokens=self.config.chunking.max_tokens,
+                    similarity_threshold=self.config.chunking.similarity_threshold,
+                    min_chunk_size=self.config.chunking.min_chunk_size
+                )
+                self.logger.info(
+                    f"Semantic chunking initialized: "
+                    f"max_tokens={self.config.chunking.max_tokens}, "
+                    f"similarity_threshold={self.config.chunking.similarity_threshold}"
+                )
 
         # Путь для временного хранения VTT
         self.download_path = os.getenv("SUBTITLES_DIR", "downloads/subtitles")
         os.makedirs(self.download_path, exist_ok=True)
 
-        self.logger.info("SubtitleExtractor инициализирован.")
+        self.logger.info(
+            f"SubtitleExtractor инициализирован с методом chunking: {self.chunking_method}"
+        )
 
     def extract_video_id(self, ref: str) -> Optional[str]:
         """
@@ -186,7 +216,7 @@ class SubtitleExtractor:
     def get_subtitles(self, video_ref: str) -> Optional[List[Dict[str, Union[str, float]]]]:
         """
         Основной метод: принимает URL или video_id,
-        возвращает список {"text", start=0.0, duration=0.0}.
+        возвращает список {"text", start, duration} с временными метками.
         """
         vid = self.extract_video_id(video_ref)
         if not vid:
@@ -202,8 +232,14 @@ class SubtitleExtractor:
             self.logger.error(f"No subtitles for {vid}")
             return None
 
-        # 3) Time‑based chunking
-        windows = self.chunk_by_time(segments)
-
-        # 4) Подготовка финального списка для RAG
-        return [{"text": w, "start": 0.0, "duration": 0.0} for w in windows]
+        # 3) Chunking в зависимости от метода
+        if self.chunking_method == "semantic" and self.semantic_chunker:
+            # Semantic chunking с сохранением временных меток
+            chunks = self.semantic_chunker.chunk(segments)
+            return chunks
+        else:
+            # Time-based chunking (обратная совместимость)
+            windows = self.chunk_by_time(segments)
+            # Для time-based chunking временные метки теряются,
+            # возвращаем с нулевыми значениями
+            return [{"text": w, "start": 0.0, "duration": 0.0} for w in windows]

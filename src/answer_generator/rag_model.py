@@ -69,7 +69,8 @@ class RAGModel:
         )
 
         # Модули для работы с субтитрами
-        self.subtitle_extractor = SubtitleExtractor()
+        # Передаем embedding_model для semantic chunking
+        self.subtitle_extractor = SubtitleExtractor(embedding_model=self.embedding_model)
         self.subtitle_manager = SubtitleManager(
             db_pool=self.db,
             embedding_model=self.embedding_model

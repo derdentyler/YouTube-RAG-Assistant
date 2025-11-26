@@ -30,6 +30,13 @@ reranker:
   top_k: 3
   model_path: "./models/reranker/logreg_reranker.pkl"
 
-# Subtitle fragment time in seconds and overlap
+# Chunking settings
+chunking:
+  method: "semantic"  # "semantic" или "time"
+  max_tokens: 150
+  similarity_threshold: 0.7
+  min_chunk_size: 50
+
+# Subtitle fragment time in seconds and overlap (для обратной совместимости с time-based chunking)
 subtitle_block_duration: 60
 subtitle_block_overlap: 10

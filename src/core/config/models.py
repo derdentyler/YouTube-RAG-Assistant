@@ -53,6 +53,32 @@ class RerankerConfig(BaseModel):
         return self
 
 
+class ChunkingConfig(BaseModel):
+    """Конфигурация чанкинга субтитров."""
+    method: Literal["semantic", "time"] = Field(
+        default="semantic",
+        description="Метод чанкинга: semantic (семантический) или time (временной)"
+    )
+    max_tokens: int = Field(
+        default=150,
+        ge=50,
+        le=500,
+        description="Максимальный размер чанка в токенах (приблизительно)"
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Порог семантической близости для объединения предложений в чанк"
+    )
+    min_chunk_size: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Минимальный размер чанка в токенах"
+    )
+
+
 class AppConfig(BaseModel):
     """Главная конфигурация приложения."""
     language: Literal["ru", "en"] = "ru"
@@ -73,19 +99,20 @@ class AppConfig(BaseModel):
     # Настройки компонентов
     retriever: RetrieverConfig = Field(default_factory=RetrieverConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     
-    # Параметры обработки субтитров
+    # Параметры обработки субтитров (для обратной совместимости с time-based chunking)
     subtitle_block_duration: int = Field(
         default=60,
         ge=10,
         le=600,
-        description="Duration of subtitle blocks in seconds"
+        description="Duration of subtitle blocks in seconds (для time-based chunking)"
     )
     subtitle_block_overlap: int = Field(
         default=10,
         ge=0,
         le=300,
-        description="Overlap between subtitle blocks in seconds"
+        description="Overlap between subtitle blocks in seconds (для time-based chunking)"
     )
     
     @model_validator(mode='before')

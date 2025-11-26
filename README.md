@@ -88,7 +88,14 @@ reranker:
   top_k: 3
   model_path: "models/reranker/logreg_reranker.pkl"
 
-# Subtitle fragment time in seconds and overlap
+# Chunking settings
+chunking:
+  method: "semantic"  # "semantic" or "time"
+  max_tokens: 150
+  similarity_threshold: 0.7
+  min_chunk_size: 50
+
+# Subtitle fragment time in seconds and overlap (for time-based chunking fallback)
 subtitle_block_duration: 60
 subtitle_block_overlap: 10
 ```
@@ -157,6 +164,46 @@ To use unit tests:
 ```bash
 poetry run pytest
 ```
+
+## Semantic Chunking Module
+
+**What is it?**  
+Semantic chunking is an advanced method for splitting video subtitles into meaningful chunks based on semantic similarity rather than fixed time windows. This approach preserves topic boundaries and improves retrieval quality for RAG systems.
+
+**How it works**  
+1. **Sentence splitting**: Subtitles are split into individual sentences using language-aware patterns.
+2. **Embedding computation**: Each sentence is converted to an embedding vector using the embedding model.
+3. **Semantic grouping**: Sentences are grouped into chunks based on cosine similarity between consecutive sentences.
+4. **Size control**: Chunks are limited to 100-200 tokens to maintain small, focused chunks.
+5. **Time preservation**: Original timestamps (start_time, duration) are preserved for each chunk.
+
+**Advantages over time-based chunking:**
+- **Semantic coherence**: Chunks contain semantically related content, not arbitrary time slices
+- **Better retrieval**: Related information stays together, improving search relevance
+- **Adaptive sizing**: Chunk size adapts to content structure, not fixed time intervals
+- **Topic boundaries**: Natural topic transitions are preserved as chunk boundaries
+
+**Configuration**
+
+Example configuration (`config.yaml`):
+
+```yaml
+chunking:
+  method: "semantic"  # "semantic" or "time" for fallback
+  max_tokens: 150     # Maximum chunk size in tokens (approximately)
+  similarity_threshold: 0.7  # Minimum similarity to merge sentences (0.0-1.0)
+  min_chunk_size: 50  # Minimum chunk size in tokens
+```
+
+**Parameters:**
+- `method`: Chunking strategy - `"semantic"` for semantic chunking or `"time"` for time-based chunking (backward compatibility)
+- `max_tokens`: Maximum chunk size. Smaller values (100-150) improve search precision, larger values (200+) provide more context
+- `similarity_threshold`: Cosine similarity threshold for merging sentences. Higher values (0.8-0.9) create more conservative chunks, lower values (0.5-0.6) create larger chunks
+- `min_chunk_size`: Minimum chunk size to avoid overly small fragments
+
+**Fallback to time-based chunking:**
+
+If `embedding_model` is not available or `method: "time"` is set, the system falls back to time-based chunking using `subtitle_block_duration` and `subtitle_block_overlap` parameters.
 
 ## Reranking Module
 
