@@ -118,6 +118,18 @@ poetry run start-api
 
 This command will launch the FastAPI application using Uvicorn, and you can access the API at `http://localhost:8000`.
 
+## Kubernetes deployment
+
+Kubernetes позволяет проверить RAG на локальном кластере (minikube/kind/k3s) по тем же манифестам, которые используют namespace, ConfigMap, Secret, Deployment и NodePort Service.
+
+1. Обновите `k8s/secret.yaml` реальными значениями Supabase/Postgres (замените `<...>`).  
+2. Расположите `.gguf` и `logreg_reranker.pkl` в PV (см. `k8s/persistent-volume.yaml`).  
+3. Соберите Docker-образ `video-rag-api:latest` и (если используете minikube) скажите `eval $(minikube docker-env)` перед сборкой.  
+4. Примените все манифесты: `kubectl apply -f k8s/`.  
+5. Проверьте статус: `kubectl get pods,svc,pvc -n video-rag`.  
+6. Получите URL через `minikube service video-rag-api-service -n video-rag --url` или обращайтесь на NodePort `30080`.  
+7. Для подробного руководства и команд см. `k8s/README.md`.
+
 ### Step 7: Testing the API
 
 The API supports Swagger UI for testing all available endpoints. To access Swagger UI, open the following link in your browser:
