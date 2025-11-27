@@ -1,17 +1,17 @@
-# Kubernetes deployment
+# Kubernetes (local) deployment
 
-В директории `k8s/` описаны манифесты для базового деплоя `video-rag-api` в Kubernetes (локально или в облаке). Это обособленный `Namespace`, ConfigMap с конфигом, Secret, PV/PVC для моделей, Deployment и NodePort Service.
+Use the manifests in this directory to run `video-rag-api` on a local cluster (Minikube, kind, k3d).
 
-## Что делает каждая манифест
+## Directory layout
 
-- `namespace.yaml` — создаёт namespace `video-rag` для изоляции ресурсов.  
-- `configmap.yaml` — разворачивает `config/config.yaml` из репозитория и монтирует его как файл.  
-- `secret.yaml` — хранит переменные окружения (Supabase, БД, пути). Перед применением замените значения `<...>` на реальные.  
-- `persistent-volume.yaml` / `persistent-volume-claim.yaml` — гарантируют доступное хранилище (hostPath) для загрузки моделей.  
-- `deployment.yaml` — запускает `video-rag-api:latest` с `ConfigMap`, `Secret`, PVC и пробами `/health`.  
-- `service.yaml` — NodePort (30080) для проверки API извне.
+- `namespace.yaml`: Creates the `video-rag` namespace.
+- `configmap.yaml`: Drops `config/config.yaml` into `/app/config/config.yaml` inside the pod.
+- `secret.yaml`: Supplies Supabase/PostgreSQL credentials plus application environment variables.
+- `persistent-volume.yaml` / `persistent-volume-claim.yaml`: Provide hostPath storage for `.gguf` and reranker files.
+- `deployment.yaml`: Runs the container with ConfigMap + Secret + PVC + health probes.
+- `service.yaml`: Exposes the app via a NodePort service (ports `8000` inside, `30080` outside).
 
-## Как развернуть
+## Local deployment steps
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -23,21 +23,23 @@ kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
 
-Или сразу:
+Or apply everything at once:
 
 ```bash
 kubectl apply -f k8s/
 ```
 
-## Проверка
+## Verification
 
-1. `kubectl get all -n video-rag` — убедитесь, что `pod`, `deployment`, `service`, `pvc` созданы.  
-2. `kubectl logs -n video-rag -l app=video-rag-api` — проверка логов.  
-3. `minikube service video-rag-api-service -n video-rag --url` или вручную `curl http://<NodeIP>:30080/health`.  
-4. `kubectl exec -it -n video-rag deployment/video-rag-api -- env | grep SUPABASE` — убедиться, что Secret подхватился.  
-5. `kubectl exec -it -n video-rag deployment/video-rag-api -- ls /app/models/llm` — проверить наличие моделей.
+```bash
+kubectl get all -n video-rag
+kubectl logs -n video-rag -l app=video-rag-api
+minikube service video-rag-api-service -n video-rag --url
+curl http://<NodeIP>:30080/health
+kubectl exec -n video-rag deployment/video-rag-api -- ls /app/models/llm
+```
 
-## Очистка
+## Cleanup
 
 ```bash
 kubectl delete -f k8s/
@@ -45,19 +47,13 @@ kubectl delete namespace video-rag
 kubectl delete pv video-rag-models-pv
 ```
 
-## Добавление моделей
+## Models
 
-1. Создайте директории на хосте (для minikube):  
-   ```
-   minikube ssh
-   sudo mkdir -p /mnt/data/video-rag-models/llm
-   exit
-   ```
-2. Скопируйте `.gguf` и reranker в hostPath или используйте `kubectl cp`.
+1. Create directories inside Minikube (e.g., `/mnt/data/video-rag-models/llm`).
+2. Copy `.gguf`/reranker files via `minikube cp` or `minikube ssh`.
+3. The `models` volume is mounted read-only inside `/app/models`.
 
-## Советы
+## Notes
 
-- Используйте `minikube start --memory=6g --cpus=2`.  
-- Обновляйте образ `video-rag-api:latest` перед деплоем.  
-- Настройте `Secret` с реальными значениями и, по необходимости, добавьте `ConfigMap` для `.env`.
-
+- For AWS production use `k8s-aws/` instead of this folder.
+- Secrets and ConfigMaps must match the environment you are targeting (`local` vs `aws`).

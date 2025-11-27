@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-rag-api
+  namespace: video-rag
+  labels:
+    app: video-rag-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: video-rag-api
+  template:
+    metadata:
+      labels:
+        app: video-rag-api
+    spec:
+      serviceAccountName: video-rag-sa
+      initContainers:
+        - name: download-models
+          image: amazon/aws-cli:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Downloading models from S3..."
+              aws s3 sync "s3://${S3_MODELS_BUCKET}/${S3_PREFIX}" /models/
+              echo "Models synced to /models"
+          env:
+            - name: S3_MODELS_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: video-rag-env
+                  key: S3_BUCKET
+            - name: S3_PREFIX
+              valueFrom:
+                secretKeyRef:
+                  name: video-rag-env
+                  key: S3_PREFIX
+            - name: AWS_REGION
+              value: "us-east-1"
+          volumeMounts:
+            - name: models-volume
+              mountPath: /models
+      containers:
+        - name: video-rag-api
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/video-rag-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - secretRef:
+                name: video-rag-env
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: models-volume
+              mountPath: /app/models
+              readOnly: true
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+      volumes:
+        - name: config-volume
+          configMap:
+            name: video-rag-config
+            items:
+              - key: config.aws.yaml
+                path: config.aws.yaml
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: video-rag-models-pvc
+      restartPolicy: Always

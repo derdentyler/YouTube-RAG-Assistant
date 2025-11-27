@@ -15,6 +15,7 @@ from src.utils.config_loader import ConfigLoader
 from src.utils.logger_loader import LoggerLoader
 from src.utils.subtitles_cleaner import clean_subtitles
 from src.core.abstractions.embeddings import Embedder
+from src.core.abstractions.storage import StorageBackend
 
 
 class SubtitleExtractor:
@@ -28,9 +29,14 @@ class SubtitleExtractor:
       4. Возврат списка чистых, уникальных фрагментов для RAG.
     """
 
-    def __init__(self, embedding_model: Optional[Embedder] = None) -> None:
+    def __init__(
+        self,
+        embedding_model: Optional[Embedder] = None,
+        storage: Optional[StorageBackend] = None,
+    ) -> None:
         self.config = ConfigLoader.get_config()
         self.logger = LoggerLoader.get_logger()
+        self.storage = storage
 
         # YouTube API и язык
         self.api = YouTubeTranscriptApi()
@@ -232,6 +238,8 @@ class SubtitleExtractor:
             self.logger.error(f"No subtitles for {vid}")
             return None
 
+        self._persist_segments(vid, segments)
+
         # 3) Chunking в зависимости от метода
         if self.chunking_method == "semantic" and self.semantic_chunker:
             # Semantic chunking с сохранением временных меток
@@ -243,3 +251,18 @@ class SubtitleExtractor:
             # Для time-based chunking временные метки теряются,
             # возвращаем с нулевыми значениями
             return [{"text": w, "start": 0.0, "duration": 0.0} for w in windows]
+
+    def _persist_segments(self, video_id: str, segments: List[Dict[str, Union[str, float]]]) -> None:
+        """Optionally backup segments to the configured storage backend."""
+        if not self.storage or not segments:
+            return
+        lines = [
+            f"{seg['start']}|{seg['duration']}|{seg['text']}"
+            for seg in segments
+        ]
+        payload = "\n".join(lines)
+        key = f"{video_id}/segments.txt"
+        try:
+            self.storage.save_file(payload, key)
+        except Exception as exc:
+            self.logger.warning("Failed to persist segments for %s: %s", video_id, exc)

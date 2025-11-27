@@ -79,6 +79,26 @@ class ChunkingConfig(BaseModel):
     )
 
 
+class AWSConfig(BaseModel):
+    """AWS-specific configuration required in production."""
+
+    enabled: bool = Field(default=False, description="Enable AWS services")
+    region: str = Field(default="us-east-1", description="AWS region")
+    s3_bucket: Optional[str] = Field(default=None, description="S3 bucket for subtitles/models")
+    s3_prefix: str = Field(default="subtitles/", description="S3 prefix for keys")
+    use_rds: bool = Field(default=False, description="Use AWS RDS instead of Supabase")
+    rds_host: Optional[str] = Field(default=None, description="RDS endpoint")
+    rds_port: int = Field(default=5432, description="RDS port")
+    rds_database: Optional[str] = Field(default=None, description="RDS database name")
+    rds_user: Optional[str] = Field(default=None, description="RDS user")
+
+    @model_validator(mode="after")
+    def validate_s3_bucket_if_enabled(self):
+        if self.enabled and not self.s3_bucket:
+            raise ValueError("s3_bucket is required when AWS is enabled")
+        return self
+
+
 class AppConfig(BaseModel):
     """Главная конфигурация приложения."""
     language: Literal["ru", "en"] = "ru"
@@ -114,6 +134,8 @@ class AppConfig(BaseModel):
         le=300,
         description="Overlap between subtitle blocks in seconds (для time-based chunking)"
     )
+
+    aws: AWSConfig = Field(default_factory=AWSConfig)
     
     @model_validator(mode='before')
     @classmethod

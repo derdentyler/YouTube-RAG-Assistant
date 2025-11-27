@@ -25,12 +25,23 @@ class ConfigLoader:
         
         with open(config_path, "r", encoding="utf-8") as file:
             raw_config = yaml.safe_load(file)
+        raw_config = self._expand_env(raw_config)
         
         # Валидация через Pydantic
         try:
             self.config = AppConfig(**raw_config)
         except Exception as e:
             raise ValueError(f"Invalid configuration: {e}") from e
+
+    def _expand_env(self, value):
+        """Recursively expand environment variables in strings."""
+        if isinstance(value, dict):
+            return {k: self._expand_env(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._expand_env(v) for v in value]
+        if isinstance(value, str):
+            return os.path.expandvars(value)
+        return value
     
     @classmethod
     def get_config(cls) -> AppConfig:

@@ -2,10 +2,13 @@ from abc import ABC, abstractmethod
 from typing import Union
 from src.utils.logger_loader import LoggerLoader
 from transformers import pipeline
-from llama_cpp import Llama
-import gc
 from src.core.abstractions.llm import BaseLLM
 from src.core.config.models import AppConfig
+
+try:
+    from llama_cpp import Llama
+except ImportError:  # pragma: no cover
+    Llama = None
 
 
 class TransformersLLM(BaseLLM):
@@ -62,6 +65,10 @@ class LlamaCppLLM(BaseLLM):
     def __init__(self, model_path: str, n_ctx: int = 2048):
         self.logger = LoggerLoader.get_logger()
         try:
+            if Llama is None:
+                raise RuntimeError(
+                    "llama_cpp is not installed; install llama-cpp-python to use gguf models"
+                )
             self.llm = Llama(
                 model_path=model_path,
                 n_ctx=n_ctx,

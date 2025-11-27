@@ -66,3 +66,27 @@ def test_config(tmp_path):
         embedding_dimension=768
     )
 
+
+@pytest.fixture(autouse=True)
+def mock_s3(monkeypatch):
+    """Mock boto3 S3 client to avoid real AWS calls."""
+    class MockS3:
+        def put_object(self, **kwargs):
+            return {}
+
+        def get_object(self, **kwargs):
+            class Body:
+                def read(self):
+                    return b""
+
+            return {'Body': Body()}
+
+        def head_object(self, **kwargs):
+            return {}
+
+        def delete_object(self, **kwargs):
+            return {}
+
+    monkeypatch.setattr('boto3.client', lambda service: MockS3())
+    yield
+
