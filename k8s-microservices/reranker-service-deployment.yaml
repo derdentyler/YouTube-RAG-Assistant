@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reranker-service
+  namespace: video-rag
+  labels:
+    app: reranker-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reranker-service
+  template:
+    metadata:
+      labels:
+        app: reranker-service
+    spec:
+      containers:
+        - name: reranker-service
+          image: rag-reranker-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8003
+              name: http
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: models-volume
+              mountPath: /app/models/reranker
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+      volumes:
+        - name: config-volume
+          configMap:
+            name: video-rag-config
+        - name: models-volume
+          persistentVolumeClaim:
+            claimName: video-rag-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reranker-service
+  namespace: video-rag
+spec:
+  selector:
+    app: reranker-service
+  ports:
+    - protocol: TCP
+      port: 8003
+      targetPort: 8003
+      name: http
+

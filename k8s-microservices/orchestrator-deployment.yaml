@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: video-rag
+  labels:
+    app: orchestrator
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orchestrator
+  template:
+    metadata:
+      labels:
+        app: orchestrator
+    spec:
+      containers:
+        - name: orchestrator
+          image: video-rag-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: LLM_SERVICE_URL
+              value: "http://llm-service:8001"
+            - name: EMBEDDER_SERVICE_URL
+              value: "http://embedder-service:8002"
+            - name: RERANKER_SERVICE_URL
+              value: "http://reranker-service:8003"
+            - name: VECTOR_STORE_SERVICE_URL
+              value: "http://vector-store-service:8004"
+          envFrom:
+            - secretRef:
+                name: video-rag-env
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: config-volume
+          configMap:
+            name: video-rag-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: video-rag
+spec:
+  type: NodePort
+  selector:
+    app: orchestrator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+      nodePort: 30080
+      name: http
+

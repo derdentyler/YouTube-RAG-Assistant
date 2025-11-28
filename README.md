@@ -134,6 +134,114 @@ The semantic chunker splits subtitles into sentences, computes embeddings, and g
 
 Optional logistic-regression reranker (`models/reranker/logreg_reranker.pkl`) reranks the top-K candidates returned by the retriever using features like cosine similarity, overlap, and length.
 
+### Monitoring and Observability
+
+The project includes comprehensive Prometheus metrics for monitoring microservices performance, health, and RAG-specific operations.
+
+**Available Metrics:**
+
+- **Request metrics:**
+  - `service_requests_total` - Total requests by service, endpoint, and status
+  - `service_request_duration_seconds` - Request latency histogram
+  - `service_errors_total` - Error count by type
+
+- **LLM metrics:**
+  - `llm_tokens_generated_total` - Total tokens generated (by model and language)
+  - `llm_generation_duration_seconds` - Time to generate text
+
+- **Embedder metrics:**
+  - `embedder_batch_size` - Number of texts embedded at once
+  - `embedder_embedding_duration_seconds` - Time to generate embeddings
+
+- **Retriever metrics:**
+  - `retriever_documents_found` - Number of documents retrieved (by video_id)
+  - `retriever_search_duration_seconds` - Vector search latency
+
+- **Reranker metrics:**
+  - `reranker_documents_reranked` - Number of documents reranked
+  - `reranker_rerank_duration_seconds` - Reranking latency
+
+- **Orchestrator metrics:**
+  - `rag_query_duration_seconds` - Total RAG query time (with/without reranker)
+  - `rag_context_length_tokens` - Context size sent to LLM
+
+**Accessing Metrics:**
+
+Each microservice exposes metrics at `/metrics` endpoint:
+
+```bash
+# LLM Service metrics
+curl http://localhost:8001/metrics
+
+# Embedder Service metrics
+curl http://localhost:8002/metrics
+
+# Reranker Service metrics
+curl http://localhost:8003/metrics
+
+# Vector Store Service metrics
+curl http://localhost:8004/metrics
+
+# Orchestrator metrics
+curl http://localhost:8000/metrics
+```
+
+**Prometheus Setup:**
+
+1. Install Prometheus (see [prometheus.io](https://prometheus.io/docs/prometheus/latest/installation/))
+
+2. Configure `prometheus.yml` to scrape all service endpoints:
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'rag-services'
+    static_configs:
+      - targets: 
+          - 'localhost:8000'  # Orchestrator
+          - 'localhost:8001'  # LLM Service
+          - 'localhost:8002'  # Embedder Service
+          - 'localhost:8003'  # Reranker Service
+          - 'localhost:8004'  # Vector Store Service
+```
+
+3. Start Prometheus:
+
+```bash
+prometheus --config.file=prometheus.yml
+```
+
+4. Visualize with Grafana (recommended):
+
+   - Install Grafana: `brew install grafana` (macOS) or see [grafana.com](https://grafana.com/docs/grafana/latest/setup-grafana/installation/)
+   - Add Prometheus as data source: `http://localhost:9090`
+   - Create dashboards for:
+     - Request rate and latency
+     - Error rates
+     - RAG pipeline performance
+     - Resource usage (CPU, memory)
+
+**Example Queries:**
+
+```promql
+# Request rate per service
+rate(service_requests_total[5m])
+
+# P95 latency
+histogram_quantile(0.95, rate(service_request_duration_seconds_bucket[5m]))
+
+# Error rate
+rate(service_errors_total[5m])
+
+# Average RAG query duration
+avg(rag_query_duration_seconds)
+```
+
+**Note:** Metrics are defined in `services/shared/metrics.py` and automatically collected by all microservices. The metrics endpoint is available even in monolithic mode.
+
 ## Testing
 
 ```bash
@@ -142,10 +250,50 @@ poetry run pytest
 
 New tests in `tests/test_storage_adapters.py` cover the storage adapters and factory.
 
+## Microservices Architecture
+
+The project supports both monolithic and microservices architectures:
+
+### Monolithic (Default)
+
+The default deployment runs all components (LLM, Embedder, Reranker, Vector Store) in a single container. This is simpler and has lower latency.
+
+- **Docker Compose:** `docker-compose.yml`
+- **Kubernetes:** `k8s/` directory
+
+### Microservices
+
+For production at scale, the application can be split into independent services:
+
+1. **Orchestrator** - Main API (port 8000)
+2. **LLM Service** - Text generation (port 8001)
+3. **Embedder Service** - Text embeddings (port 8002)
+4. **Reranker Service** - Document reranking (port 8003)
+5. **Vector Store Service** - Vector search (port 8004)
+
+**Benefits:**
+- Independent scaling of each service
+- Better resource utilization
+- Fault isolation
+- Team autonomy
+
+**Deployment:**
+
+```bash
+# Docker Compose
+docker-compose -f docker-compose.microservices.yml up --build
+
+# Kubernetes
+kubectl apply -f k8s-microservices/
+```
+
+See `k8s-microservices/README.md` for detailed deployment instructions.
+
 ## Further reading
 
 - Local Kubernetes manifests: `k8s/` (Minikube-friendly, hostPath + NodePort).
 - AWS manifests + IAM policy: `k8s-aws/` (EKS, load balancer, S3-backed init container).
+- Microservices manifests: `k8s-microservices/` (independent service deployments).
 
 ## Contact
 

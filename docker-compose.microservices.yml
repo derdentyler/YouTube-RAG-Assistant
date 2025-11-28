@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # Orchestrator (main API)
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    image: video-rag-orchestrator:latest
+    container_name: rag-orchestrator
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - LLM_SERVICE_URL=http://llm-service:8001
+      - EMBEDDER_SERVICE_URL=http://embedder-service:8002
+      - RERANKER_SERVICE_URL=http://reranker-service:8003
+      - VECTOR_STORE_SERVICE_URL=http://vector-store-service:8004
+    env_file:
+      - .env
+    depends_on:
+      - llm-service
+      - embedder-service
+      - vector-store-service
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # LLM Service
+  llm-service:
+    build:
+      context: .
+      dockerfile: services/llm_service/Dockerfile
+    image: rag-llm-service:latest
+    container_name: rag-llm
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models/llm:/app/models/llm:ro
+      - ./config:/app/config:ro
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Embedder Service
+  embedder-service:
+    build:
+      context: .
+      dockerfile: services/embedder_service/Dockerfile
+    image: rag-embedder-service:latest
+    container_name: rag-embedder
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./config:/app/config:ro
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Reranker Service
+  reranker-service:
+    build:
+      context: .
+      dockerfile: services/reranker_service/Dockerfile
+    image: rag-reranker-service:latest
+    container_name: rag-reranker
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./config:/app/config:ro
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Vector Store Service
+  vector-store-service:
+    build:
+      context: .
+      dockerfile: services/vector_store_service/Dockerfile
+    image: rag-vector-store-service:latest
+    container_name: rag-vector-store
+    ports:
+      - "8004:8004"
+    environment:
+      - POSTGRES_HOST=postgres
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # PostgreSQL with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=${SUPABASE_KEY}
+      - POSTGRES_DB=${DBNAME:-postgres}
+      - POSTGRES_USER=${USER:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+
