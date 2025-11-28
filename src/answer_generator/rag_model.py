@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from src.core.abstractions.embeddings import Embedder
 from src.core.abstractions.llm import BaseLLM
 from src.core.config.models import AppConfig
+from src.core.abstractions.storage import StorageBackend
 from src.utils.db_connector import DBConnector
 from src.utils.logger_loader import LoggerLoader
 from src.data_processing.subtitle_extractor import SubtitleExtractor
@@ -30,12 +31,14 @@ class RAGModel:
     """
 
     def __init__(
-        self, 
+        self,
         db_connector: DBConnector,
         embedding_model: Optional[Embedder] = None,
         llm: Optional[BaseLLM] = None,
-        config: Optional[AppConfig] = None
+        config: Optional[AppConfig] = None,
+        storage: Optional[StorageBackend] = None,
     ):
+        self.storage = storage
         self.db = db_connector
         self.logger = LoggerLoader.get_logger()
 
@@ -69,7 +72,11 @@ class RAGModel:
         )
 
         # Модули для работы с субтитрами
-        self.subtitle_extractor = SubtitleExtractor()
+        # Передаем embedding_model для semantic chunking
+        self.subtitle_extractor = SubtitleExtractor(
+            embedding_model=self.embedding_model,
+            storage=self.storage
+        )
         self.subtitle_manager = SubtitleManager(
             db_pool=self.db,
             embedding_model=self.embedding_model

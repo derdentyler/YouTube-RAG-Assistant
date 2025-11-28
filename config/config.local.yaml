@@ -1,45 +1,36 @@
-# Global settings
 language: "ru"
-
 use_langchain: false
 
 models:
-  # Russian Llama model (llama.cpp backend)
   ru:
     backend: "llama.cpp"
     model_path: "./models/llm/saiga_llama3_8b-q4_k_m.gguf"
     n_ctx: 8192
-
-  # English model via Transformers
   en:
     backend: "transformers"
     model_name: "mistralai/Mistral-7B-Instruct-v0.1"
 
-# Sentence embedding model
 embedding_model: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-embedding_dimension: 768  # NEW: размерность векторов эмбеддингов
+embedding_dimension: 768
 
-# Retriever settings
 retriever:
   top_k: 6
   similarity_metric: "cosine"
 
-# Reranker settings
 reranker:
   use_reranker: false
   top_k: 3
   model_path: "./models/reranker/logreg_reranker.pkl"
 
-# Chunking settings
 chunking:
-  method: "semantic"  # "semantic" или "time"
+  method: "semantic"
   max_tokens: 150
   similarity_threshold: 0.7
   min_chunk_size: 50
 
-# Subtitle fragment time in seconds and overlap (для обратной совместимости с time-based chunking)
 subtitle_block_duration: 60
 subtitle_block_overlap: 10
 
 aws:
   enabled: false
+

@@ -53,6 +53,52 @@ class RerankerConfig(BaseModel):
         return self
 
 
+class ChunkingConfig(BaseModel):
+    """Конфигурация чанкинга субтитров."""
+    method: Literal["semantic", "time"] = Field(
+        default="semantic",
+        description="Метод чанкинга: semantic (семантический) или time (временной)"
+    )
+    max_tokens: int = Field(
+        default=150,
+        ge=50,
+        le=500,
+        description="Максимальный размер чанка в токенах (приблизительно)"
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Порог семантической близости для объединения предложений в чанк"
+    )
+    min_chunk_size: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Минимальный размер чанка в токенах"
+    )
+
+
+class AWSConfig(BaseModel):
+    """AWS-specific configuration required in production."""
+
+    enabled: bool = Field(default=False, description="Enable AWS services")
+    region: str = Field(default="us-east-1", description="AWS region")
+    s3_bucket: Optional[str] = Field(default=None, description="S3 bucket for subtitles/models")
+    s3_prefix: str = Field(default="subtitles/", description="S3 prefix for keys")
+    use_rds: bool = Field(default=False, description="Use AWS RDS instead of Supabase")
+    rds_host: Optional[str] = Field(default=None, description="RDS endpoint")
+    rds_port: int = Field(default=5432, description="RDS port")
+    rds_database: Optional[str] = Field(default=None, description="RDS database name")
+    rds_user: Optional[str] = Field(default=None, description="RDS user")
+
+    @model_validator(mode="after")
+    def validate_s3_bucket_if_enabled(self):
+        if self.enabled and not self.s3_bucket:
+            raise ValueError("s3_bucket is required when AWS is enabled")
+        return self
+
+
 class AppConfig(BaseModel):
     """Главная конфигурация приложения."""
     language: Literal["ru", "en"] = "ru"
@@ -73,20 +119,23 @@ class AppConfig(BaseModel):
     # Настройки компонентов
     retriever: RetrieverConfig = Field(default_factory=RetrieverConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     
-    # Параметры обработки субтитров
+    # Параметры обработки субтитров (для обратной совместимости с time-based chunking)
     subtitle_block_duration: int = Field(
         default=60,
         ge=10,
         le=600,
-        description="Duration of subtitle blocks in seconds"
+        description="Duration of subtitle blocks in seconds (для time-based chunking)"
     )
     subtitle_block_overlap: int = Field(
         default=10,
         ge=0,
         le=300,
-        description="Overlap between subtitle blocks in seconds"
+        description="Overlap between subtitle blocks in seconds (для time-based chunking)"
     )
+
+    aws: AWSConfig = Field(default_factory=AWSConfig)
     
     @model_validator(mode='before')
     @classmethod
