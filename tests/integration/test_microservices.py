@@ -6,6 +6,9 @@ from services.clients.reranker_client import RerankerClient
 from services.clients.vector_store_client import VectorStoreClient
 
 
+pytestmark = pytest.mark.skip(reason="Integration tests require running microservices")
+
+
 @pytest.mark.asyncio
 async def test_llm_service_integration():
     """Test LLM service client (requires service to be running)."""

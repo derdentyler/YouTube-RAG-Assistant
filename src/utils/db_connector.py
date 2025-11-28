@@ -10,11 +10,11 @@ from src.utils.logger_loader import LoggerLoader
 load_dotenv()
 logger = LoggerLoader.get_logger()
 
-USER = os.getenv("USER")  # Если USER нет в .env, используем "default_user"
+USER = os.getenv("USER", "postgres")  # Default to 'postgres' if not set
 PASSWORD = os.getenv("SUPABASE_KEY")
-HOST = os.getenv("HOST")
-PORT = int(os.getenv("PORT"))  # Если PORT нет в .env, используем 5432
-DBNAME = os.getenv("DBNAME")
+HOST = os.getenv("HOST", "localhost")  # Default to 'localhost' if not set
+PORT = int(os.getenv("PORT", "5432"))  # Default to 5432 if not set
+DBNAME = os.getenv("DBNAME", "postgres")  # Default to 'postgres' if not set
 
 
 logger.info(f"DB Connection config: USER={USER}, HOST={HOST}, PORT={PORT}, DBNAME={DBNAME}")
