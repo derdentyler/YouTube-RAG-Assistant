@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vector-store-service
+  namespace: video-rag
+  labels:
+    app: vector-store-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vector-store-service
+  template:
+    metadata:
+      labels:
+        app: vector-store-service
+    spec:
+      containers:
+        - name: vector-store-service
+          image: rag-vector-store-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8004
+              name: http
+          envFrom:
+            - secretRef:
+                name: video-rag-env
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: config-volume
+          configMap:
+            name: video-rag-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-store-service
+  namespace: video-rag
+spec:
+  selector:
+    app: vector-store-service
+  ports:
+    - protocol: TCP
+      port: 8004
+      targetPort: 8004
+      name: http
+
